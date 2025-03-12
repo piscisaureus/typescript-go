@@ -5,11 +5,7 @@ use std::fs;
 use std::path::Path;
 use std::process;
 
-mod ast;
-mod compiler;
-mod error;
-mod parser;
-mod scanner;
+use typescript_rust::{ast, compiler, parser, scanner};
 
 fn main() {
     // Temporary implementation that just processes the demo.ts file

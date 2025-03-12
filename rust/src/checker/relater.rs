@@ -1,10 +1,41 @@
 // Corresponds to internal/checker/relater.go in the Go implementation
 // This module handles type relationship checking (assignability, etc.)
+// In Go, this functionality is spread across multiple files within the checker package
 
-use crate::checker::types::*;
+use crate::checker::types::Type;
+
+/// Helper function to check if a type is a primitive type
+/// Corresponds to internal/checker/relater.go isPrimitiveType() function
+fn is_primitive_type(typ: &Type) -> bool {
+    matches!(
+        typ,
+        Type::String | Type::Number | Type::Boolean | Type::_Void | Type::_Null | Type::_Undefined
+    )
+}
+
+/// Helper function to check if a property is known in a given type
+/// Corresponds to isKnownProperty() in internal/checker/relater.go
+pub fn is_known_property(target_type: &Type, property_name: &str) -> bool {
+    match target_type {
+        Type::Object(Some(props)) => {
+            // Check if property exists in object properties
+            props.iter().any(|(name, _)| name == property_name)
+        }
+        Type::Interface(_, props) => {
+            // Check if property exists in interface properties
+            props.iter().any(|(name, _)| name == property_name)
+        }
+        Type::Union(types) => {
+            // For union types, property must exist in at least one constituent type
+            types.iter().any(|t| is_known_property(t, property_name))
+        }
+        _ => false,
+    }
+}
 
 /// Checks if source_type is assignable to target_type
-/// Corresponds to isAssignableTo in internal/checker/relater.go
+/// Corresponds to isAssignableTo() in internal/checker/relater.go
+/// This is a key function in the type checker that determines type compatibility
 pub fn is_assignable_to(source_type: &Type, target_type: &Type) -> bool {
     // Any is assignable to and from anything
     if *source_type == Type::Any || *target_type == Type::Any {
@@ -21,8 +52,38 @@ pub fn is_assignable_to(source_type: &Type, target_type: &Type) -> bool {
         return true;
     }
 
-    // Handle arrays and objects
+    // Object is never assignable to primitive types
+    if let Type::Object(_) = source_type {
+        if is_primitive_type(target_type) {
+            return false;
+        }
+
+        // Special case: also check if target is a union consisting only of primitive types
+        if let Type::Union(target_types) = target_type {
+            if target_types.iter().all(|t| is_primitive_type(t)) {
+                return false; // Object can't be assigned to a union of only primitive types
+            }
+        }
+    }
+
+    // Handle union types first - this is the core of union type assignment rules
     match (source_type, target_type) {
+        // Union target type: source must be assignable to ANY of the union's constituent types
+        (_, Type::Union(target_types)) => {
+            // Source is assignable to a union if it's assignable to any of its members
+            target_types
+                .iter()
+                .any(|t| is_assignable_to(source_type, t))
+        }
+
+        // Union source type: ALL of the union's constituent types must be assignable to target
+        (Type::Union(source_types), _) => {
+            // A union is assignable to a target if all of its members are assignable to the target
+            source_types
+                .iter()
+                .all(|t| is_assignable_to(t, target_type))
+        }
+
         // Array type compatibility
         (Type::Array(src_elem_type), Type::Array(tgt_elem_type)) => {
             // Check element type compatibility
@@ -40,6 +101,7 @@ pub fn is_assignable_to(source_type: &Type, target_type: &Type) -> bool {
 
                 // Check if the object has all required interface properties
                 Some(props) => {
+                    // First check that all required interface properties exist in the object
                     for (iface_prop_name, iface_prop_type) in interface_props {
                         let matching_prop = props.iter().find(|(name, _)| name == iface_prop_name);
 
@@ -52,6 +114,18 @@ pub fn is_assignable_to(source_type: &Type, target_type: &Type) -> bool {
                             None => return false, // Required interface property missing
                         }
                     }
+
+                    // Then check that the object doesn't have properties not in the interface
+                    // This is needed for the case of object literals assigned to interface types
+                    for (prop_name, _) in props {
+                        if !interface_props
+                            .iter()
+                            .any(|(iface_name, _)| iface_name == prop_name)
+                        {
+                            return false; // Object has a property not in the interface
+                        }
+                    }
+
                     true
                 }
             }
@@ -140,6 +214,7 @@ pub fn is_assignable_to(source_type: &Type, target_type: &Type) -> bool {
 }
 
 /// Helper to format types for display in error messages
+/// Corresponds to internal/checker/types.go String() methods on various type implementations
 pub fn format_type(typ: &Type) -> String {
     match typ {
         Type::Any => "any".to_string(),
@@ -164,7 +239,23 @@ pub fn format_type(typ: &Type) -> String {
                 format!("{{ {} }}", properties)
             }
         }
-        Type::Interface(name, _) => name.clone(),
+        Type::Interface(name, _) => {
+            // Only return the name if it's a real interface name (not an empty string)
+            if name.is_empty() {
+                // This is probably an anonymous interface
+                "interface{}".to_string()
+            } else {
+                name.clone()
+            }
+        }
+        Type::Union(types) => {
+            // Format as "T1 | T2 | T3"
+            types
+                .iter()
+                .map(|t| format_type(t))
+                .collect::<Vec<_>>()
+                .join(" | ")
+        }
         Type::Function(signature) => {
             let params = signature
                 .parameters

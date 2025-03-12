@@ -19,6 +19,7 @@ pub enum Type {
     Array(Box<Type>),                       // Array type with element type
     Object(Option<Vec<(String, Type)>>),    // Object type with optional properties
     Interface(String, Vec<(String, Type)>), // Interface type with name and properties
+    Union(Vec<Type>),                       // Union type (e.g., string | number)
 }
 
 /// Represents a function signature with parameters and return type
@@ -31,7 +32,7 @@ pub struct FunctionSignature {
 
 /// Scope represents a variable and function scope during type checking
 /// Similar to scope handling in Go's checker
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct Scope {
     variables: HashMap<String, Type>,
     functions: HashMap<String, FunctionSignature>,
@@ -39,7 +40,7 @@ struct Scope {
 
 /// TypeContext maintains type information during checking
 /// Similar to checker context in Go
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TypeContext {
     scopes: Vec<Scope>,
     interfaces: HashMap<String, Vec<(String, Type)>>,

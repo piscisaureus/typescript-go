@@ -31,8 +31,10 @@ fn get_text_to_keyword() -> &'static HashMap<&'static str, Kind> {
         map.insert("while", Kind::WhileKeyword);
         map.insert("string", Kind::StringKeyword);
         map.insert("number", Kind::NumberKeyword);
+        map.insert("boolean", Kind::BooleanKeyword);
         map.insert("true", Kind::TrueKeyword);
         map.insert("false", Kind::FalseKeyword);
+        map.insert("null", Kind::NullKeyword);
         map.insert("interface", Kind::InterfaceKeyword);
         // Add more keywords as needed to match Go implementation
         map
@@ -375,6 +377,10 @@ impl Scanner {
                 ':' => {
                     self.pos += 1;
                     self.token = Kind::ColonToken;
+                }
+                '|' => {
+                    self.pos += 1;
+                    self.token = Kind::BarToken;
                 }
 
                 // String literals

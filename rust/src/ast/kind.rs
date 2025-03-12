@@ -1,4 +1,5 @@
 // Corresponds to internal/ast/kind.go in the Go implementation
+// Go implementation defines this as type Kind int16
 
 use std::fmt;
 
@@ -58,6 +59,7 @@ pub enum Kind {
     EqualsGreaterThanToken,  // =>
 
     ColonToken, // :
+    BarToken,   // |
 
     // Keywords
     FunctionKeyword,
@@ -70,8 +72,10 @@ pub enum Kind {
     WhileKeyword,
     StringKeyword,
     NumberKeyword,
+    BooleanKeyword,
     TrueKeyword,
     FalseKeyword,
+    NullKeyword,
 
     // Identifiers
     Identifier,
@@ -103,6 +107,7 @@ pub enum Kind {
     // Destructuring patterns
     ObjectBindingPattern,
     BindingElement,
+    UnionType,
 }
 
 impl fmt::Display for Kind {

@@ -1,6 +1,6 @@
 // Corresponds to internal/parser/parser.go in the Go implementation
 
-use crate::ast::{self, Kind, NodeFlags, TextRange};
+use crate::ast::{self, Kind, Node, NodeFlags, TextRange};
 use crate::error::{Diagnostic, DiagnosticCode, Result};
 use crate::scanner::Scanner;
 use std::path::Path;
@@ -321,50 +321,8 @@ impl Parser {
         if self.token == Kind::ColonToken {
             self.next_token(); // Consume the colon
 
-            // Parse the type annotation
-            if self.token == Kind::StringKeyword
-                || self.token == Kind::NumberKeyword
-                || self.token == Kind::Identifier
-            {
-                let type_text = self.scanner.token_text().to_owned();
-                let type_ident = Rc::new(ast::Identifier {
-                    base: ast::NodeBase::new(Kind::Identifier),
-                    text: type_text,
-                });
-                self.next_token();
-
-                // Check for array type (e.g., string[])
-                let is_array_type = if self.token == Kind::OpenBracketToken {
-                    self.next_token(); // Consume '['
-
-                    if self.token != Kind::CloseBracketToken {
-                        return Err(self.error(DiagnosticCode::SyntaxError, "Expected ']'"));
-                    }
-
-                    self.next_token(); // Consume ']'
-                    true
-                } else {
-                    false
-                };
-
-                let type_ref = Rc::new(ast::TypeReference {
-                    base: ast::NodeBase::new(Kind::TypeReference),
-                    type_name: type_ident,
-                    is_array_type,
-                });
-
-                type_annotation = Some(type_ref as Rc<dyn ast::Node>);
-            } else {
-                return Err(Diagnostic::new(
-                    DiagnosticCode::SyntaxError,
-                    "Expected type annotation after colon",
-                    &self.file_name,
-                    0, // TODO: Get actual position
-                    0, // TODO: Get actual length
-                    0, // TODO: Get actual line
-                    0, // TODO: Get actual column
-                ));
-            }
+            // Use the general type parser to handle all types including unions
+            type_annotation = Some(self.parse_type()?);
         }
 
         // Parse optional initializer
@@ -726,7 +684,7 @@ impl Parser {
         let type_annotation = if self.token == Kind::ColonToken {
             self.next_token();
 
-            // Parse the type
+            // Parse the type (will handle unions properly)
             let type_node = self.parse_type()?;
             Some(type_node)
         } else {
@@ -747,14 +705,162 @@ impl Parser {
     /// Corresponds to parts of parseTypeReference and parseType in internal/parser/parser.go
     /// Extended to handle object type literals which is implemented differently in the Go version
     fn parse_type(&mut self) -> Result<Rc<dyn ast::Node>> {
+        // Parse the initial type (primitive, reference, or object)
+        let mut left_type = self.parse_primary_type()?;
+
+        // Check for union type: T1 | T2 | T3
+        while self.token == Kind::BarToken {
+            // Collect the starting position for accurate source mapping
+            let start_pos = left_type.pos();
+
+            // Consume the bar token
+            self.next_token();
+
+            // Parse the next type in the union
+            let right_type = self.parse_primary_type()?;
+
+            // If we already have a union type, append to it
+            let mut union_types = if left_type.kind() == Kind::UnionType {
+                // Extract types from existing union
+                let union_node = left_type.clone();
+                // We need to manually extract the types from the Rc<dyn Node>
+                let union_type_any = union_node.as_any();
+
+                // Use a different approach to get the UnionType - we know it's a UnionType because we checked the kind
+                let union_types =
+                    if let Some(union_type) = union_type_any.downcast_ref::<ast::UnionType>() {
+                        // Clone the existing types
+                        union_type.types.clone()
+                    } else {
+                        // This should never happen if the kind check is correct, but handle it
+                        eprintln!("Warning: Expected UnionType kind but downcast failed");
+                        let mut types = Vec::new();
+                        types.push(left_type.clone());
+                        types
+                    };
+
+                union_types
+            } else {
+                // Start a new union type with the left_type as the first member
+                let mut types = Vec::new();
+                types.push(left_type.clone());
+                types
+            };
+
+            // Add the right type to the union
+            union_types.push(right_type);
+
+            // Calculate the end position from the last type in the union
+            let end_pos = union_types.last().unwrap().end();
+
+            // Create the base node with correct position
+            let mut base = ast::NodeBase::new(Kind::UnionType);
+            base.set_pos(start_pos, end_pos);
+
+            // Create a new union type node
+            left_type = Rc::new(ast::UnionType {
+                base,
+                types: union_types,
+            });
+        }
+
+        Ok(left_type)
+    }
+
+    /// Parse a primary type (not including union types)
+    fn parse_primary_type(&mut self) -> Result<Rc<dyn ast::Node>> {
+        // Handle parenthesized type expressions: (string | number)
+        if self.token == Kind::OpenParenToken {
+            self.next_token(); // Consume '('
+
+            // Parse the type inside parentheses
+            let type_node = self.parse_type()?;
+
+            // Expect ')'
+            if self.token != Kind::CloseParenToken {
+                let token_pos = self.scanner.token_pos();
+                let token_len = self.scanner.pos() - token_pos;
+                let line = self.scanner.get_line_number();
+                let column = self.scanner.get_column_number();
+
+                return Err(Diagnostic::new(
+                    DiagnosticCode::SyntaxError,
+                    &format!("Expected ')', found: {:?}", self.token),
+                    &self.file_name,
+                    token_pos,
+                    token_len,
+                    line,
+                    column,
+                ));
+            }
+            self.next_token(); // Consume ')'
+
+            return Ok(type_node);
+        }
+        // Handle literal types (true, false)
+        else if self.token == Kind::TrueKeyword || self.token == Kind::FalseKeyword {
+            // Save the token position
+            let token_pos = self.scanner.token_pos();
+            let value = self.token == Kind::TrueKeyword;
+
+            // Create boolean literal with position information
+            let mut base = ast::NodeBase::new(self.token);
+            let pos_end = self.scanner.pos();
+            base.set_pos(token_pos, pos_end);
+
+            let boolean_literal = Rc::new(ast::BooleanLiteral { base, value });
+            self.next_token();
+            return Ok(boolean_literal as Rc<dyn ast::Node>);
+        }
+        // Handle string literals in type positions
+        else if self.token == Kind::StringLiteral {
+            // Save the token position
+            let token_pos = self.scanner.token_pos();
+            let text = self.scanner.token_text().to_owned();
+
+            // Create string literal with position information
+            let mut base = ast::NodeBase::new(Kind::StringLiteral);
+            let pos_end = self.scanner.pos();
+            base.set_pos(token_pos, pos_end);
+
+            let string_literal = Rc::new(ast::StringLiteral { base, text });
+            self.next_token();
+            return Ok(string_literal as Rc<dyn ast::Node>);
+        }
+        // Handle numeric literals in type positions
+        else if self.token == Kind::NumericLiteral {
+            // Save the token position
+            let token_pos = self.scanner.token_pos();
+            let text = self.scanner.token_text().to_owned();
+            let value = text.parse::<f64>().unwrap_or(0.0);
+
+            // Create numeric literal with position information
+            let mut base = ast::NodeBase::new(Kind::NumericLiteral);
+            let pos_end = self.scanner.pos();
+            base.set_pos(token_pos, pos_end);
+
+            let number_literal = Rc::new(ast::NumericLiteral { base, text, value });
+            self.next_token();
+            return Ok(number_literal as Rc<dyn ast::Node>);
+        }
         // Handle primitive types and type references
-        if self.token == Kind::StringKeyword
+        else if self.token == Kind::StringKeyword
             || self.token == Kind::NumberKeyword
+            || self.token == Kind::BooleanKeyword
+            || self.token == Kind::NullKeyword
             || self.token == Kind::Identifier
         {
+            // Save the token position for accurate source mapping
+            let token_pos = self.scanner.token_pos();
             let type_text = self.scanner.token_text().to_owned();
+
+            // Create identifier with position information
+            let mut identifier_base = ast::NodeBase::new(Kind::Identifier);
+            let pos_end = self.scanner.pos();
+            identifier_base.set_pos(token_pos, pos_end);
+
             let type_identifier = Rc::new(ast::Identifier {
-                base: ast::NodeBase::new(Kind::Identifier),
+                base: identifier_base,
                 text: type_text,
             });
 
@@ -783,8 +889,14 @@ impl Parser {
                 false
             };
 
+            // Create type reference with position information
+            let start_pos = type_identifier.pos();
+            let end_pos = self.scanner.token_pos(); // End position after any array brackets
+            let mut type_ref_base = ast::NodeBase::new(Kind::TypeReference);
+            type_ref_base.set_pos(start_pos, end_pos);
+
             let type_reference = Rc::new(ast::TypeReference {
-                base: ast::NodeBase::new(Kind::TypeReference),
+                base: type_ref_base,
                 type_name: type_identifier,
                 is_array_type,
             });
@@ -795,14 +907,19 @@ impl Parser {
         else if self.token == Kind::OpenBraceToken {
             self.parse_type_literal()
         } else {
+            let token_pos = self.scanner.token_pos();
+            let token_len = self.scanner.pos() - token_pos;
+            let line = self.scanner.get_line_number();
+            let column = self.scanner.get_column_number();
+
             return Err(Diagnostic::new(
                 DiagnosticCode::SyntaxError,
-                "Expected type annotation",
+                &format!("Expected type annotation, found: {:?}", self.token),
                 &self.file_name,
-                0, // TODO: Get actual position
-                0, // TODO: Get actual length
-                0, // TODO: Get actual line
-                0, // TODO: Get actual column
+                token_pos,
+                token_len,
+                line,
+                column,
             ));
         }
     }
@@ -926,7 +1043,10 @@ impl Parser {
         let mut left = self.parse_primary_expression()?;
 
         // Continue parsing binary operators as long as they appear
-        while self.token == Kind::PlusToken {
+        while self.token == Kind::PlusToken
+            || self.token == Kind::EqualsToken
+            || self.token == Kind::BarToken
+        {
             let operator = self.token;
             self.next_token();
 
@@ -1041,14 +1161,22 @@ impl Parser {
                 self.parse_object_literal_expression()?
             }
             _ => {
+                let token_pos = self.scanner.token_pos();
+                let token_len = self.scanner.pos() - token_pos;
+                let line = self.scanner.get_line_number();
+                let column = self.scanner.get_column_number();
+
                 return Err(Diagnostic::new(
                     DiagnosticCode::SyntaxError,
-                    &format!("Unexpected token: {:?}", self.token),
+                    &format!(
+                        "Unexpected token: {:?} at position {}",
+                        self.token, token_pos
+                    ),
                     &self.file_name,
-                    0, // TODO: Get actual position
-                    0, // TODO: Get actual length
-                    0, // TODO: Get actual line
-                    0, // TODO: Get actual column
+                    token_pos,
+                    token_len,
+                    line,
+                    column,
                 ));
             }
         };

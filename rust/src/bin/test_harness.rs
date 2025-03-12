@@ -127,9 +127,17 @@ fn run_rust_compiler(file_path: &Path) -> Vec<Diagnostic> {
 
     // Create a program and perform type checking
     let mut program = compiler::create_program(source_file);
-    if let Err(e) = program.type_check() {
-        // Return the error as a diagnostic with file info
-        let diagnostic = e.with_file(&file_name).with_source_text(&source_text);
+    if let Err(err_msg) = program.type_check() {
+        // Create a synthetic diagnostic from the error message
+        let diagnostic = Diagnostic::new(
+            typescript_rust::error::DiagnosticCode::SyntaxError,
+            &err_msg,
+            &file_name,
+            0,
+            0,
+            1,
+            1,
+        );
         return vec![diagnostic];
     }
 

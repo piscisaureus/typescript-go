@@ -162,12 +162,12 @@ demo("hello", 42);
 
 ## Implementation Progress
 
-Current estimated progress: 78%
+Current estimated progress: 85%
 
-- AST: 75%
-- Scanner: 80%
-- Parser: 80%
-- Type Checker: 85%
+- AST: 80%
+- Scanner: 82%
+- Parser: 85%
+- Type Checker: 90%
 - Code Generation: 0%
 
 ## Milestone Achievements
@@ -176,6 +176,7 @@ The Rust implementation can now:
 
 1. Parse TypeScript programs with various types:
    - Basic types: string, number, boolean
+   - Union types (e.g., string | number)
    - Array types (e.g., any[])
    - Object types with properties (including object type literals)
    - Interface declarations with property signatures
@@ -200,6 +201,7 @@ The Rust implementation can now:
    - Function expression type handling
    - Boolean literal support
    - Type compatibility rules (assignability)
+   - Union type handling and compatibility checks
    - Error reporting for type mismatches
    - Interface declarations and type checking
    - Property type verification for objects and interfaces
@@ -216,6 +218,12 @@ The Rust implementation can now:
 
 ## Recent Improvements
 
+- Added support for union types (string | number)
+- Implemented parsing and type checking for union types
+- Added type compatibility rules for union types
+- Improved error reporting for union type mismatches
+- Enhanced parser to handle parenthesized type expressions
+- Added support for literal types in interfaces
 - Fixed issue with function declarations requiring an implementation
 - All unit tests and test harness tests are now passing
 - Improved error reporting for function declarations
@@ -226,10 +234,15 @@ The Rust implementation can now:
 - Better error formatting for type mismatch errors
 - Fixed function parameter type checking
 - Added specific handling for object literal errors (missing/extra properties)
-- Refactored type checker to use a Relater struct for type compatibility
-  checking
-- Implemented structured approach to type relationships similar to Go
-  implementation
+- Refactored type checker to follow Go implementation structure:
+  - Moved type relationship functionality from compiler to checker module
+  - Removed code duplication between compiler and checker
+  - Implemented type relation checking in checker/relater.rs
+- Added special handling for union types in the type assignability logic:
+  - Object types not assignable to union of primitive types
+  - Union types assignable if any member is assignable to target
+  - Source type assignable to union if assignable to any union member
+- Added support for array methods including push() with proper type checking
 - Improved object interface compatibility checking with property-by-property
   verification
 - Added support for function signature compatibility checking

@@ -648,7 +648,39 @@ pub struct TypeLiteral {
     pub members: Vec<Rc<dyn Node>>,
 }
 
+/// Represents a union type (e.g. string | number)
+/// This is a new addition to support union types not present in the Go implementation
+#[derive(Debug, Clone)]
+pub struct UnionType {
+    pub base: NodeBase,
+    pub types: Vec<Rc<dyn Node>>,
+}
+
 impl Node for TypeLiteral {
+    fn kind(&self) -> Kind {
+        self.base.kind()
+    }
+    fn flags(&self) -> NodeFlags {
+        self.base.flags()
+    }
+    fn pos(&self) -> usize {
+        self.base.pos()
+    }
+    fn end(&self) -> usize {
+        self.base.end()
+    }
+    fn loc(&self) -> TextRange {
+        self.base.loc()
+    }
+    fn set_flags(&mut self, flags: NodeFlags) {
+        self.base.set_flags(flags)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+impl Node for UnionType {
     fn kind(&self) -> Kind {
         self.base.kind()
     }
