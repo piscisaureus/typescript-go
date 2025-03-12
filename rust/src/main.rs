@@ -1,37 +1,98 @@
-mod ast;
-mod parser;
-mod scanner;
-mod types;
-mod error;
+// Main entry point for the TypeScript compiler in Rust
+// Corresponds to cmd/tsgo/main.go in the Go implementation
 
 use std::fs;
 use std::path::Path;
+use std::process;
+
+mod ast;
+mod compiler;
+mod error;
+mod parser;
+mod scanner;
 
 fn main() {
-    let demo_path = Path::new("../demo.ts");
-    let source = fs::read_to_string(demo_path).expect("Could not read demo.ts");
-    
-    println!("Source code:");
-    println!("{}", source);
-    
-    let result = parse_and_check(&source);
-    match result {
-        Ok(_) => println!("Successfully parsed and type-checked demo.ts"),
-        Err(e) => eprintln!("Error: {}", e),
-    }
-}
+    // Temporary implementation that just processes the demo.ts file
+    let file_path = "../demo.ts";
 
-fn parse_and_check(source: &str) -> Result<(), String> {
-    // Create scanner
-    let scanner = scanner::Scanner::new(source);
-    
-    // Create parser and parse
-    let mut parser = parser::Parser::new(scanner).map_err(|e| e.to_string())?;
-    let ast = parser.parse().map_err(|e| e.to_string())?;
-    
-    // Type check
-    let checker = types::TypeChecker::new(ast);
-    checker.check().map_err(|e| e.to_string())?;
-    
-    Ok(())
+    // Read the file
+    let source_text = match fs::read_to_string(file_path) {
+        Ok(text) => text,
+        Err(e) => {
+            eprintln!("Error reading file {}: {}", file_path, e);
+            process::exit(1);
+        }
+    };
+
+    // Parse the file
+    let file_name = Path::new(file_path)
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+
+    println!("Parsing file: {}", file_name); // DEBUG: not in Go
+    println!("Source code:\n{}", source_text); // DEBUG: not in Go
+
+    // Create scanner to debug tokens
+    // DEBUG: not in Go - This whole token logging block is for debug only
+    let mut scanner = scanner::Scanner::new(&source_text);
+    println!("\nTokens:");
+    loop {
+        let token = scanner.scan();
+        let text = scanner.token_text();
+        println!("  {:?}: {}", token, text);
+        if token == ast::Kind::EndOfFile {
+            break;
+        }
+    }
+
+    match parser::parse_source_file(&file_name, &source_text) {
+        Ok(source_file) => {
+            println!("\nParsing successful!"); // DEBUG: not in Go
+
+            // Check for parsing diagnostics
+            if !source_file.diagnostics.is_empty() {
+                println!("\nDiagnostics:"); // DEBUG: not in Go
+                for diag in &source_file.diagnostics {
+                    println!("{}", diag); // DEBUG: not in Go
+                }
+            }
+
+            // Print a simple representation of the AST
+            // DEBUG: not in Go - This whole AST visualization block is for debug only
+            println!("\nProgram structure:");
+            println!("- Source file: {}", source_file.file_name);
+
+            // Print functions
+            let mut found_functions = false;
+            for stmt in &source_file.statements {
+                if stmt.kind() == ast::Kind::FunctionDeclaration {
+                    found_functions = true;
+                    println!("  - Function declaration");
+                }
+            }
+
+            if !found_functions {
+                println!("  (No functions found)");
+            }
+
+            // Print statements that are not functions
+            let mut found_statements = false;
+            for stmt in &source_file.statements {
+                if stmt.kind() != ast::Kind::FunctionDeclaration {
+                    found_statements = true;
+                    println!("  - Statement: {:?}", stmt.kind());
+                }
+            }
+
+            if !found_statements {
+                println!("  (No non-function statements found)");
+            }
+        }
+        Err(e) => {
+            eprintln!("Error parsing file: {}", e);
+            process::exit(1);
+        }
+    }
 }

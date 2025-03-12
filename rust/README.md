@@ -40,12 +40,15 @@ The program will read the demo.ts file from the parent directory, parse it, and 
 
 ## Project Structure
 
-- `main.rs`: The entry point of the program, handles file reading and coordinating the compilation phases.
-- `scanner.rs`: Performs lexical analysis to convert the source code into tokens.
-- `parser.rs`: Parses the tokens into an Abstract Syntax Tree (AST).
-- `ast.rs`: Defines the AST data structures.
-- `types.rs`: Implements the type checker.
-- `error.rs`: Defines the error types used throughout the compiler.
+The project is organized to mirror the Go implementation:
+
+- `src/ast/` - AST definitions (corresponds to internal/ast in Go)
+- `src/parser/` - Parser implementation (corresponds to internal/parser in Go)
+- `src/scanner/` - Lexical scanner (corresponds to internal/scanner in Go)
+- `src/error/` - Diagnostic and error handling (corresponds to internal/compiler/diagnostics in Go)
+- `src/compiler/` - Compiler components (corresponds to internal/compiler in Go)
+
+Each file contains comments referencing the corresponding Go files and types to make it easier to understand the relationship between the two implementations.
 
 ## Future Enhancements
 

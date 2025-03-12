@@ -21,3 +21,11 @@ Try to follow the structure of to the go code as closely as possible.
 
 Whenever you create Rust files, structures, functions, etc, add comments to them
 that reference the go implementation.
+
+When you add debugging code (eprintln statements etc) that doesn't appear in the
+Go source code, mark them as such, so we can remove them more easily later. Feel
+free to remove debug statements that you added but no longer find useful.
+
+Document implementation progress in rust/PROGRESS.md. You should write down
+which parts of the Go codebase have been (partially) translated to rust and any
+major deviations you made.
