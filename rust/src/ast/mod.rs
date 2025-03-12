@@ -578,6 +578,7 @@ pub struct TypeReference {
     pub base: NodeBase,
     pub type_name: Rc<Identifier>,
     pub is_array_type: bool,
+    pub type_arguments: Vec<Rc<dyn Node>>, // For handling cases like (string | number)[]
 }
 
 impl Node for TypeReference {
@@ -1107,6 +1108,7 @@ impl NodeFactory {
             base: NodeBase::new(Kind::TypeReference),
             type_name,
             is_array_type,
+            type_arguments: Vec::new(),
         });
         self.hook_node_create(&*node);
         node

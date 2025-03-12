@@ -105,10 +105,12 @@ impl TypeContext {
     }
 
     /// Initialize with built-in functions and types
-    /// Corresponds to scope.initializeBuiltins() in internal/checker/scope.go
-    /// Extended with console object support which isn't in the Go implementation
-    /// but is useful for testing purposes
+    /// Corresponds to scope.initializeBuiltins() in internal/checker/scope.go 
+    /// In the Go implementation, these are likely loaded from lib.es5.d.ts and other declaration files
+    /// instead of being hardcoded. We're implementing basic support here.
     pub fn add_built_ins(&mut self) {
+        eprintln!("[DEBUG] Adding built-in types and functions to TypeContext");
+        
         // Add the String function that converts values to strings
         // Similar to Go's String() builtin
         let string_params = vec![Type::Any];
@@ -117,6 +119,7 @@ impl TypeContext {
             return_type: Type::String,
         };
         self.add_function("String".to_string(), string_signature);
+        eprintln!("[DEBUG] Added String function");
 
         // Add the console object for logging
         // Note: This is not in the Go implementation, added for testing purposes
@@ -136,5 +139,54 @@ impl TypeContext {
 
         // Register console in global scope
         self.add_variable("console".to_string(), console_type);
+        eprintln!("[DEBUG] Added console object with log method");
+        
+        // Register Array interface and its methods (similar to lib.es5.d.ts)
+        // In Go, this would be loaded from the .d.ts files
+        eprintln!("[DEBUG] Adding Array prototype methods");
+        
+        // Array.prototype.push method - takes element type, returns number
+        let push_signature = FunctionSignature {
+            parameters: vec![Type::Any], // Will be replaced with actual element type when used
+            return_type: Type::Number,
+        };
+        eprintln!("[DEBUG] Created push signature: params={:?}, return={:?}", 
+                 push_signature.parameters, push_signature.return_type);
+        
+        // Array.prototype.pop method - returns element type
+        let pop_signature = FunctionSignature {
+            parameters: vec![],
+            return_type: Type::Any, // Will be replaced with actual element type when used
+        };
+        
+        // Array.prototype.join method - takes string separator, returns string
+        let join_signature = FunctionSignature {
+            parameters: vec![Type::String],
+            return_type: Type::String,
+        };
+        
+        // Add all of these to a registry for array methods that can be referenced
+        // when checking property access on arrays
+        self.add_type("Array.prototype.push".to_string(), Type::Function(Box::new(push_signature)));
+        eprintln!("[DEBUG] Added Array.prototype.push to types registry");
+        
+        self.add_type("Array.prototype.pop".to_string(), Type::Function(Box::new(pop_signature)));
+        eprintln!("[DEBUG] Added Array.prototype.pop to types registry");
+        
+        self.add_type("Array.prototype.join".to_string(), Type::Function(Box::new(join_signature)));
+        eprintln!("[DEBUG] Added Array.prototype.join to types registry");
+        
+        // Check if these types are really in our registry
+        if let Some(push_type) = self.get_type("Array.prototype.push") {
+            eprintln!("[DEBUG] Verified Array.prototype.push is in registry");
+        } else {
+            eprintln!("[DEBUG] ERROR: Array.prototype.push is NOT in registry!");
+        }
+        
+        // Dump all types in registry for debugging
+        eprintln!("[DEBUG] All registered types:");
+        for (name, _) in &self.types {
+            eprintln!("[DEBUG]   - {}", name);
+        }
     }
 }

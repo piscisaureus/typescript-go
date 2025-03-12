@@ -49,20 +49,27 @@ impl TypeChecker {
             source_file.line_map.clone()
         };
 
+        eprintln!("[DEBUG] Creating type context for source file: {}", source_file.file_name);
+        
         // Create a type context for this source file
         let mut context = TypeContext::new();
+        eprintln!("[DEBUG] Type context created");
 
         // Add built-in functions and types
         context.add_built_ins();
+        eprintln!("[DEBUG] Built-in types added to context");
 
         // First pass: Register interfaces
         self.register_interfaces(&mut context, &source_file)?;
+        eprintln!("[DEBUG] Interfaces registered");
 
         // Second pass: Create context with function declarations
         self.register_declarations(&mut context, &source_file)?;
+        eprintln!("[DEBUG] Declarations registered");
 
         // Store the context for type resolution during AST traversal
         self.current_context = Some(context.clone());
+        eprintln!("[DEBUG] Context stored for current source file");
 
         // Third pass: Check all statements
         for statement in &source_file.statements {
@@ -339,7 +346,12 @@ impl TypeChecker {
 
                             // Check type annotation if present
                             if let Some(type_anno) = &decl.type_annotation {
+                                eprintln!("[DEBUG] Variable declaration with type annotation: {}", decl.name.text);
                                 var_type = self.get_type_from_node(type_anno.clone())?;
+                                eprintln!("[DEBUG] Type from annotation: {}", self.format_type(&var_type));
+                                
+                                // Note: In the future, array type declarations like (string | number)[] 
+                                // should be correctly parsed by the AST parser and resolved by the type system
 
                                 // For TypeReference nodes, check if they reference an interface or other named type
                                 if type_anno.kind() == ast::Kind::TypeReference {
@@ -610,6 +622,8 @@ impl TypeChecker {
                             }
 
                             // Add variable to context
+                            eprintln!("[DEBUG] Adding variable to context: {} with type {}", 
+                                      decl.name.text, self.format_type(&var_type));
                             context.add_variable(decl.name.text.clone(), var_type);
                         }
                     }
@@ -684,25 +698,81 @@ impl TypeChecker {
                     // Check the object expression
                     let obj_type =
                         self.check_expression(context, Rc::clone(&prop_access.expression))?;
+                    
+                    eprintln!("[DEBUG] PropertyAccessExpression: Got object_type: {}", self.format_type(&obj_type));
+                    
+                    // If this is an identifier, log the identifier name
+                    if let ast::Kind::Identifier = prop_access.expression.kind() {
+                        if let Some(id) = prop_access.expression.as_any().downcast_ref::<ast::Identifier>() {
+                            eprintln!("[DEBUG] PropertyAccessExpression object is identifier: {}", id.text);
+                            
+                            // Note: Array methods like push, pop, join are defined in scope.rs in add_built_ins()
+                            // and should be accessed through the normal property resolution mechanism
+                            // In the future, these should be loaded from TypeScript .d.ts files
+                        }
+                    }
 
                     // Get the property name
                     let prop_name = &prop_access.name.text;
 
                     // Check for array type methods
+                    // In the Go implementation, array methods are defined in the standard library .d.ts files
+                    // and resolved through the normal property access mechanisms, not hardcoded in the checker
                     if let Type::Array(elem_type) = &obj_type {
+                        eprintln!("[DEBUG] Processing property access on array type");
+                        eprintln!("[DEBUG] Array element type: {}", self.format_type(elem_type));
+                        eprintln!("[DEBUG] Looking for property: {}", prop_name);
+                        
+                        // Check special array methods through our built-ins registry
+                        let array_method_name = format!("Array.prototype.{}", prop_name);
+                        if let Some(built_in_type) = context.get_type(&array_method_name) {
+                            eprintln!("[DEBUG] Found built-in type for {}: {}", 
+                                     array_method_name, self.format_type(&built_in_type));
+                                     
+                            // For methods like push, we need to update parameter types to match array element type
+                            if prop_name == "push" && matches!(built_in_type, Type::Function(_)) {
+                                if let Type::Function(sig) = &built_in_type {
+                                    // Create a new signature with parameters matching the array element type
+                                    let updated_sig = FunctionSignature {
+                                        parameters: vec![(**elem_type).clone()],
+                                        return_type: sig.return_type.clone(),
+                                    };
+                                    return Ok(Type::Function(Box::new(updated_sig)));
+                                }
+                            }
+                            
+                            return Ok(built_in_type);
+                        } else {
+                            eprintln!("[DEBUG] No built-in type found for {}", array_method_name);
+                        }
+                        
                         // For arrays, check common methods
                         if prop_name == "join" {
+                            eprintln!("[DEBUG] Using hardcoded join method");
                             // Simplified handling - join method takes a string and returns a string
                             return Ok(Type::Function(Box::new(FunctionSignature {
                                 parameters: vec![Type::String],
                                 return_type: Type::String,
                             })));
                         } else if prop_name == "push" {
+                            eprintln!("[DEBUG] Using hardcoded push method");
                             // Push method takes the element type and returns the new length
+                            // For push(), we need to handle union types properly
                             return Ok(Type::Function(Box::new(FunctionSignature {
                                 parameters: vec![(**elem_type).clone()],
                                 return_type: Type::Number, // push returns the new length
                             })));
+                        } else if prop_name == "pop" {
+                            eprintln!("[DEBUG] Using hardcoded pop method");
+                            // Pop returns an element of the array or undefined
+                            return Ok(Type::Function(Box::new(FunctionSignature {
+                                parameters: vec![],
+                                return_type: (**elem_type).clone(), // Actually should be elem_type | undefined
+                            })));
+                        } else if prop_name == "length" {
+                            eprintln!("[DEBUG] Using hardcoded length property");
+                            // Length is a property, not a method
+                            return Ok(Type::Number);
                         }
                     }
 
@@ -796,7 +866,12 @@ impl TypeChecker {
                     let func_expr = &call_expr.expression;
 
                     // Get the function type
+                    // In the Go implementation, this calls checkExpressionCached on the function expression
                     let func_type = self.check_expression(context, Rc::clone(func_expr))?;
+                    
+                    // Note: Array methods like push, pop, join are defined in scope.rs in add_built_ins()
+                    // In the future, array methods should be loaded from TypeScript .d.ts files
+                    // and accessed through the normal function resolution mechanism
 
                     // Handle different types of function expressions
                     match func_expr.kind() {
@@ -923,54 +998,45 @@ impl TypeChecker {
                                 return Ok(signature.return_type);
                             }
 
-                            // Before we give up with an "Invalid call target" error, try to handle array methods directly
-                            if let ast::Kind::PropertyAccessExpression = func_expr.kind() {
-                                if let Some(prop_access) = func_expr
-                                    .as_any()
-                                    .downcast_ref::<ast::PropertyAccessExpression>(
-                                ) {
-                                    let obj_expr = &prop_access.expression;
-                                    let obj_type =
-                                        self.check_expression(context, Rc::clone(obj_expr))?;
-
-                                    // Special handling for array push method
-                                    if let Type::Array(elem_type) = &obj_type {
-                                        if prop_access.name.text == "push" {
-                                            // Handle empty arguments case
-                                            if call_expr.arguments.is_empty() {
-                                                return Ok(Type::Number); // Push returns the new length
-                                            }
-
-                                            // For each argument, check if it's compatible with the array element type
-                                            for arg in &call_expr.arguments {
-                                                let arg_type =
-                                                    self.check_expression(context, Rc::clone(arg))?;
-
-                                                if !self.is_assignable_to(&arg_type, elem_type) {
-                                                    self.diagnostics.push(self.create_diagnostic(
-                                                        DiagnosticCode::TypeMismatch,
-                                                        format!(
-                                                            "Argument of type '{}' is not assignable to parameter of type '{}'",
-                                                            self.format_type(&arg_type),
-                                                            self.format_type(elem_type)
-                                                        ),
-                                                        arg.pos(),
-                                                        arg.end(),
-                                                    ));
-                                                }
-                                            }
-
-                                            // Return number as the result type of push (length of array)
-                                            return Ok(Type::Number);
-                                        }
-                                    }
-                                }
-                            }
+                            // In the Go implementation, checkCallExpression handles various function signatures
+                            // and would check for type compatibility between arguments and parameters.
+                            // We've moved the array method handling to earlier in the function.
                         }
                         _ => {}
                     }
 
+                    // Note: In the future, proper handling of array methods should happen through 
+                    // the normal type system mechanisms after loading from TypeScript .d.ts files
+                    
                     // If we get here, it's an invalid call target
+                    eprintln!("[DEBUG] Invalid call target! func_expr kind: {:?}", func_expr.kind());
+                    
+                    if let ast::Kind::PropertyAccessExpression = func_expr.kind() {
+                        if let Some(prop_access) = func_expr.as_any().downcast_ref::<ast::PropertyAccessExpression>() {
+                            let obj_expr = &prop_access.expression;
+                            let prop_name = &prop_access.name.text;
+                            
+                            eprintln!("[DEBUG] Property access: {}", prop_name);
+                            
+                            // Get the object type
+                            let obj_type = self.check_expression(context, Rc::clone(obj_expr))?;
+                            eprintln!("[DEBUG] Object type: {}", self.format_type(&obj_type));
+                            
+                            // Get function type
+                            eprintln!("[DEBUG] Function type: {}", self.format_type(&func_type));
+                            
+                            // Also check if we can look up array methods from our built-ins registry
+                            let array_method_name = format!("Array.prototype.{}", prop_name);
+                            if let Some(built_in_type) = context.get_type(&array_method_name) {
+                                eprintln!("[DEBUG] Found built-in type for {}: {}", 
+                                         array_method_name, self.format_type(&built_in_type));
+                            } else {
+                                eprintln!("[DEBUG] No built-in type found for {}", array_method_name);
+                            }
+                        }
+                    }
+                    
+                    // Report the invalid call target error
                     self.diagnostics.push(self.create_diagnostic(
                         DiagnosticCode::InvalidCallTarget,
                         "Invalid call target".to_string(),
@@ -1144,6 +1210,15 @@ impl TypeChecker {
 
                     // Look up variable in context
                     if let Some(var_type) = context.get_variable(&ident.text) {
+                        // Special debug for array types
+                        if ident.text == "codes" {
+                            eprintln!("[DEBUG] Variable 'codes' has type: {}", self.format_type(&var_type));
+                            if let Type::Array(elem_type) = &var_type {
+                                eprintln!("[DEBUG] codes is an array with element type: {}", self.format_type(elem_type));
+                            } else {
+                                eprintln!("[DEBUG] codes is NOT detected as an array type!");
+                            }
+                        }
                         return Ok(var_type);
                     } else {
                         self.diagnostics.push(self.create_diagnostic(
@@ -1186,14 +1261,28 @@ impl TypeChecker {
                     for elem in &array_expr.elements[1..] {
                         let elem_type = self.check_expression(context, Rc::clone(elem))?;
 
-                        // If types don't match exactly, default to Any
+                        // If types don't match exactly, we should create a union type
+                        // This is a simplification - ideally we'd merge compatible types
                         if elem_type != common_type {
-                            common_type = Type::Any;
-                            break;
+                            // Create a union type of the different element types
+                            // This better handles arrays of mixed types like in the test case
+                            if let Type::Union(mut types) = common_type.clone() {
+                                // If common_type is already a union, add this type to it if it's not already there
+                                if !types.contains(&elem_type) {
+                                    types.push(elem_type);
+                                    common_type = Type::Union(types);
+                                }
+                            } else {
+                                // Create a new union type with both types
+                                common_type = Type::Union(vec![common_type, elem_type]);
+                            }
                         }
                     }
+                    
 
-                    return Ok(Type::Array(Box::new(common_type)));
+                    let array_type = Type::Array(Box::new(common_type));
+                    eprintln!("[DEBUG] Inferred array type: {}", self.format_type(&array_type));
+                    return Ok(array_type);
                 }
 
                 // Fallback for any unexpected issues
@@ -1263,27 +1352,54 @@ impl TypeChecker {
                 if let Some(type_ref) = node.as_any().downcast_ref::<ast::TypeReference>() {
                     // Check if this is an array type (has [] at the end)
                     if type_ref.is_array_type {
-                        // For any[] we create an Array type with Any as element type
+                        eprintln!("[DEBUG] Processing array type annotation: {}[]", type_ref.type_name.text);
+                        
+                        // Check if we have type arguments (for generic array types or parenthesized types)
+                        if !type_ref.type_arguments.is_empty() {
+                            eprintln!("[DEBUG] Found array with type arguments: {} args", type_ref.type_arguments.len());
+                            
+                            // Process the type argument as the element type
+                            if type_ref.type_arguments.len() == 1 {
+                                let arg_type = self.get_type_from_node(Rc::clone(&type_ref.type_arguments[0]))?;
+                                eprintln!("[DEBUG] Array element type from type argument: {}", self.format_type(&arg_type));
+                                
+                                let array_type = Type::Array(Box::new(arg_type));
+                                eprintln!("[DEBUG] Created array type with argument: {}", self.format_type(&array_type));
+                                return Ok(array_type);
+                            } else {
+                                eprintln!("[DEBUG] Multiple type arguments not supported, using Any");
+                                // Only handle single type argument for now
+                                return Ok(Type::Array(Box::new(Type::Any)));
+                            }
+                        }
+                        
+                        // For regular types like string[], number[], etc.
                         let element_type = match type_ref.type_name.text.as_str() {
                             "string" => Type::String,
                             "number" => Type::Number,
                             "boolean" => Type::Boolean,
                             "any" => Type::Any,
-                            // Check if it's a named type in the context
-                            name => {
-                                // If the type checker has a context, try to get the named type
+                            // Check if it refers to a named type
+                            _ => {
+                                // Try to look up the name in the context
                                 if let Some(context) = self.current_context.as_ref() {
-                                    if let Some(found_type) = context.get_type(name) {
+                                    if let Some(found_type) = context.get_type(&type_ref.type_name.text) {
+                                        eprintln!("[DEBUG] Found named type for array element: {}", self.format_type(&found_type));
                                         found_type
                                     } else {
+                                        eprintln!("[DEBUG] Named type not found for array element, using Any");
                                         Type::Any // Type not found in context, default to Any
                                     }
                                 } else {
+                                    eprintln!("[DEBUG] No context available, using Any for array element");
                                     Type::Any // No context available, default to Any
                                 }
                             }
                         };
-                        return Ok(Type::Array(Box::new(element_type)));
+                        
+                        let array_type = Type::Array(Box::new(element_type));
+                        eprintln!("[DEBUG] Created array type: {}", self.format_type(&array_type));
+                        return Ok(array_type);
                     }
 
                     // Regular non-array types
@@ -1341,15 +1457,20 @@ impl TypeChecker {
             ast::Kind::UnionType => {
                 // Handle union types: string | number
                 if let Some(union_type) = node.as_any().downcast_ref::<ast::UnionType>() {
+                    eprintln!("[DEBUG] Processing UnionType with {} members", union_type.types.len());
                     let mut types = Vec::new();
 
                     // Convert each member type to a Type
-                    for type_node in &union_type.types {
+                    for (i, type_node) in union_type.types.iter().enumerate() {
+                        eprintln!("[DEBUG] Processing union member {}", i);
                         let type_value = self.get_type_from_node(Rc::clone(type_node))?;
+                        eprintln!("[DEBUG] Union member {} has type: {}", i, self.format_type(&type_value));
                         types.push(type_value);
                     }
-
-                    Ok(Type::Union(types))
+                    
+                    let union_type = Type::Union(types.clone());
+                    eprintln!("[DEBUG] Created union type: {}", self.format_type(&union_type));
+                    Ok(union_type)
                 } else {
                     Ok(Type::Any)
                 }

@@ -795,6 +795,53 @@ impl Parser {
             }
             self.next_token(); // Consume ')'
 
+            // Now check if this is followed by [] to form an array type
+            if self.token == Kind::OpenBracketToken {
+                self.next_token(); // consume '['
+                
+                // Check for and consume ']'
+                if self.token != Kind::CloseBracketToken {
+                    return Err(Diagnostic::new(
+                        DiagnosticCode::SyntaxError,
+                        "Expected ']' after '['",
+                        &self.file_name,
+                        0, // TODO: Get actual position
+                        0, // TODO: Get actual length
+                        0, // TODO: Get actual line
+                        0, // TODO: Get actual column
+                    ));
+                }
+                
+                self.next_token(); // consume ']'
+                
+                // Create an array type with the parenthesized type as its element type
+                let start_pos = type_node.pos();
+                let end_pos = self.scanner.token_pos();
+                let mut array_type_base = ast::NodeBase::new(Kind::TypeReference);
+                array_type_base.set_pos(start_pos, end_pos);
+                
+                // Create a special identifier for the array type
+                let array_name_base = ast::NodeBase::new(Kind::Identifier);
+                let array_name = Rc::new(ast::Identifier {
+                    base: array_name_base,
+                    text: "Array".to_string(), // Use "Array" as the name
+                });
+                
+                // Store the element type in the type_arguments field
+                let mut type_arguments = Vec::new();
+                type_arguments.push(type_node);
+                
+                // Create the array type reference
+                let array_type = Rc::new(ast::TypeReference {
+                    base: array_type_base,
+                    type_name: array_name,
+                    is_array_type: true,
+                    type_arguments,
+                });
+                
+                return Ok(array_type as Rc<dyn ast::Node>);
+            }
+
             return Ok(type_node);
         }
         // Handle literal types (true, false)
@@ -889,16 +936,26 @@ impl Parser {
                 false
             };
 
-            // Create type reference with position information
+            // Check if this is an array of a parenthesized type like (string | number)[]
+            // In this case, we need to create a different structure
             let start_pos = type_identifier.pos();
             let end_pos = self.scanner.token_pos(); // End position after any array brackets
             let mut type_ref_base = ast::NodeBase::new(Kind::TypeReference);
             type_ref_base.set_pos(start_pos, end_pos);
-
+            
+            // If this is an array type and type_identifier is "Array", it might be a generic array type
+            // In TypeScript syntax like (string | number)[] is parsed as Array<string | number>
+            let type_arguments = Vec::new();
+            
+            // For now, we're not supporting the full generic syntax like Array<T>
+            // Instead, we'll just handle the special case of parenthesized union types in arrays
+            
+            // Create type reference
             let type_reference = Rc::new(ast::TypeReference {
                 base: type_ref_base,
                 type_name: type_identifier,
                 is_array_type,
+                type_arguments,
             });
 
             Ok(type_reference as Rc<dyn ast::Node>)
