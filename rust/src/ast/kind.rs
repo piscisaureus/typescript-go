@@ -51,6 +51,8 @@ pub enum Kind {
     WhileKeyword,
     StringKeyword,
     NumberKeyword,
+    TrueKeyword,
+    FalseKeyword,
 
     // Identifiers
     Identifier,
@@ -64,6 +66,7 @@ pub enum Kind {
     ExpressionStatement,
     BinaryExpression,
     CallExpression,
+    ArrayLiteralExpression,
     PropertyAccessExpression,
     VariableDeclaration,
     VariableDeclarationList,

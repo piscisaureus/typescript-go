@@ -318,6 +318,38 @@ impl TypeChecker {
             ast::Kind::NumericLiteral => {
                 return Ok(Type::Number);
             }
+            ast::Kind::TrueKeyword | ast::Kind::FalseKeyword => {
+                return Ok(Type::Boolean);
+            }
+            ast::Kind::ArrayLiteralExpression => {
+                if let Some(array_expr) = expression.as_any().downcast_ref::<ast::ArrayLiteralExpression>() {
+                    // Check if array is empty
+                    if array_expr.elements.is_empty() {
+                        // Empty array - default to Any[]
+                        return Ok(Type::Array(Box::new(Type::Any)));
+                    }
+                    
+                    // Try to infer the element type from the first element
+                    let first_elem_type = self.check_expression(context, Rc::clone(&array_expr.elements[0]))?;
+                    
+                    // Check if all elements have compatible types
+                    let mut common_type = first_elem_type.clone();
+                    for elem in &array_expr.elements[1..] {
+                        let elem_type = self.check_expression(context, Rc::clone(elem))?;
+                        
+                        // If types don't match exactly, default to Any
+                        if elem_type != common_type {
+                            common_type = Type::Any;
+                            break;
+                        }
+                    }
+                    
+                    return Ok(Type::Array(Box::new(common_type)));
+                }
+                
+                // Fallback for any unexpected issues
+                return Ok(Type::Array(Box::new(Type::Any)))
+            }
             _ => {
                 // Unhandled expression type
                 self.diagnostics.push(Diagnostic::simple(
@@ -338,10 +370,25 @@ impl TypeChecker {
         match node.kind() {
             ast::Kind::TypeReference => {
                 if let Some(type_ref) = node.as_any().downcast_ref::<ast::TypeReference>() {
+                    // Check if this is an array type (has [] at the end)
+                    if type_ref.is_array_type {
+                        // For any[] we create an Array type with Any as element type
+                        let element_type = match type_ref.type_name.text.as_str() {
+                            "string" => Type::String,
+                            "number" => Type::Number,
+                            "boolean" => Type::Boolean,
+                            "any" => Type::Any,
+                            _ => Type::Any, // Unknown type name - default to Any
+                        };
+                        return Ok(Type::Array(Box::new(element_type)));
+                    }
+                    
+                    // Regular non-array types
                     match type_ref.type_name.text.as_str() {
                         "string" => Ok(Type::String),
                         "number" => Ok(Type::Number),
                         "boolean" => Ok(Type::Boolean),
+                        "any" => Ok(Type::Any),
                         _ => Ok(Type::Any), // Unknown type name - default to Any
                     }
                 } else {
@@ -369,10 +416,18 @@ impl TypeChecker {
             return true;
         }
 
-        // Handle special cases
+        // Handle arrays
         match (source_type, target_type) {
+            (Type::Array(src_elem_type), Type::Array(tgt_elem_type)) => {
+                // Check element type compatibility
+                self.is_assignable_to(src_elem_type, tgt_elem_type)
+            }
+            
             // Number is assignable to String due to coercion
             (Type::Number, Type::String) => true,
+            
+            // Boolean can be converted to String in JS
+            (Type::Boolean, Type::String) => true,
             
             // Add more special cases as needed
             // ...

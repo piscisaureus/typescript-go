@@ -15,6 +15,7 @@ pub enum Type {
     Undefined,  // Undefined type
     Null,       // Null type
     Function,   // Function type (simplified, would have signature in full implementation)
+    Array(Box<Type>), // Array type with element type
 }
 
 /// Represents a function signature with parameters and return type

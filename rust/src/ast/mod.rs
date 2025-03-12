@@ -190,6 +190,30 @@ impl Node for NumericLiteral {
     }
 }
 
+impl Node for BooleanLiteral {
+    fn kind(&self) -> Kind {
+        self.base.kind()
+    }
+    fn flags(&self) -> NodeFlags {
+        self.base.flags()
+    }
+    fn pos(&self) -> usize {
+        self.base.pos()
+    }
+    fn end(&self) -> usize {
+        self.base.end()
+    }
+    fn loc(&self) -> TextRange {
+        self.base.loc()
+    }
+    fn set_flags(&mut self, flags: NodeFlags) {
+        self.base.set_flags(flags)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
 impl Node for BinaryExpression {
     fn kind(&self) -> Kind {
         self.base.kind()
@@ -358,6 +382,30 @@ impl Node for CallExpression {
     }
 }
 
+impl Node for ArrayLiteralExpression {
+    fn kind(&self) -> Kind {
+        self.base.kind()
+    }
+    fn flags(&self) -> NodeFlags {
+        self.base.flags()
+    }
+    fn pos(&self) -> usize {
+        self.base.pos()
+    }
+    fn end(&self) -> usize {
+        self.base.end()
+    }
+    fn loc(&self) -> TextRange {
+        self.base.loc()
+    }
+    fn set_flags(&mut self, flags: NodeFlags) {
+        self.base.set_flags(flags)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
 /// Represents a source file
 /// In Go, this is the SourceFile struct
 #[derive(Debug, Clone)]
@@ -394,6 +442,14 @@ pub struct NumericLiteral {
     pub base: NodeBase,
     pub text: String,
     pub value: f64,
+}
+
+/// Represents a boolean literal (true/false)
+/// In Go, this is the BooleanLiteral struct
+#[derive(Debug, Clone)]
+pub struct BooleanLiteral {
+    pub base: NodeBase,
+    pub value: bool,
 }
 
 /// Represents a binary expression (e.g. a + b)
@@ -459,12 +515,21 @@ pub struct CallExpression {
     pub arguments: Vec<Rc<dyn Node>>,
 }
 
-/// Represents a type reference (e.g. 'string', 'number')
+/// Represents an array literal (e.g. [1, 2, 3])
+/// In Go, this is the ArrayLiteralExpression struct
+#[derive(Debug, Clone)]
+pub struct ArrayLiteralExpression {
+    pub base: NodeBase,
+    pub elements: Vec<Rc<dyn Node>>,
+}
+
+/// Represents a type reference (e.g. 'string', 'number', 'any[]')
 /// This is similar to TypeReference in the Go code
 #[derive(Debug, Clone)]
 pub struct TypeReference {
     pub base: NodeBase,
     pub type_name: Rc<Identifier>,
+    pub is_array_type: bool,
 }
 
 impl Node for TypeReference {
@@ -527,10 +592,11 @@ impl NodeFactory {
         })
     }
 
-    pub fn create_type_reference(&self, type_name: Rc<Identifier>) -> Rc<TypeReference> {
+    pub fn create_type_reference(&self, type_name: Rc<Identifier>, is_array_type: bool) -> Rc<TypeReference> {
         Rc::new(TypeReference {
             base: NodeBase::new(Kind::TypeReference),
             type_name,
+            is_array_type,
         })
     }
 }
