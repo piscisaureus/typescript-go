@@ -423,11 +423,12 @@ impl TypeChecker {
                 self.is_assignable_to(src_elem_type, tgt_elem_type)
             }
             
-            // Number is assignable to String due to coercion
-            (Type::Number, Type::String) => true,
+            // In TypeScript, numbers can be coerced to strings during string concatenation,
+            // but a Number type is not assignable to a String parameter
+            (Type::Number, Type::String) => false,
             
-            // Boolean can be converted to String in JS
-            (Type::Boolean, Type::String) => true,
+            // Similarly, booleans are not assignable to strings in TypeScript
+            (Type::Boolean, Type::String) => false,
             
             // Add more special cases as needed
             // ...
