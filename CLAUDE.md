@@ -28,4 +28,4 @@ free to remove debug statements that you added but no longer find useful.
 
 Document implementation progress in rust/PROGRESS.md. You should write down
 which parts of the Go codebase have been (partially) translated to rust and any
-major deviations you made.
+major deviations you made. Estimate progress as a percentage.

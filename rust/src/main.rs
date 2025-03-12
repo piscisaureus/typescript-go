@@ -4,6 +4,7 @@
 use std::fs;
 use std::path::Path;
 use std::process;
+use std::rc::Rc;
 
 mod ast;
 mod compiler;
@@ -53,7 +54,7 @@ fn main() {
 
             // Check for parsing diagnostics
             if !source_file.diagnostics.is_empty() {
-                println!("\nDiagnostics:"); // DEBUG: not in Go
+                println!("\nParsing Diagnostics:"); // DEBUG: not in Go
                 for diag in &source_file.diagnostics {
                     println!("{}", diag); // DEBUG: not in Go
                 }
@@ -88,6 +89,31 @@ fn main() {
 
             if !found_statements {
                 println!("  (No non-function statements found)");
+            }
+
+            // Create a program and perform type checking
+            println!("\nPerforming type checking..."); // DEBUG: not in Go
+            let mut program = compiler::create_program(source_file);
+            
+            match program.type_check() {
+                Ok(_) => {
+                    println!("Type checking completed!"); // DEBUG: not in Go
+                    
+                    // Print any type checking diagnostics
+                    let diagnostics = program.get_diagnostics();
+                    if !diagnostics.is_empty() {
+                        println!("\nType Checking Diagnostics:"); // DEBUG: not in Go
+                        for diag in diagnostics {
+                            println!("{}", diag); // DEBUG: not in Go
+                        }
+                    } else {
+                        println!("No type errors found."); // DEBUG: not in Go
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error during type checking: {}", e);
+                    process::exit(1);
+                }
             }
         }
         Err(e) => {

@@ -19,7 +19,13 @@ pub enum DiagnosticCode {
     UnknownError,
     SyntaxError,
     UndefinedVariable,
+    UndefinedFunction,
     TypeMismatch,
+    ArgumentCountMismatch,
+    InvalidCallTarget,
+    InvalidBinaryOperation,
+    UnsupportedOperator,
+    UnsupportedExpression,
     MissingSemicolon,
     UnterminatedString,
     // Add more specific error codes as needed
@@ -57,6 +63,25 @@ impl Diagnostic {
             len,
             line,
             column,
+            severity: DiagnosticSeverity::Error,
+        }
+    }
+
+    // Simpler constructor for type checking that doesn't require line/column info
+    pub fn simple(
+        code: DiagnosticCode,
+        message: String,
+        pos: usize,
+        end: usize,
+    ) -> Self {
+        Self {
+            code,
+            message,
+            file: "".to_owned(),
+            pos,
+            len: end - pos,
+            line: 0,
+            column: 0,
             severity: DiagnosticSeverity::Error,
         }
     }

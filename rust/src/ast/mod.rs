@@ -7,6 +7,7 @@ pub use kind::Kind;
 pub use node_flags::NodeFlags;
 
 use crate::error::Diagnostic;
+use std::any::Any;
 use std::rc::Rc;
 
 /// Represents a text range/position in source code
@@ -36,6 +37,10 @@ pub trait Node: std::fmt::Debug {
     fn end(&self) -> usize;
     fn loc(&self) -> TextRange;
     fn set_flags(&mut self, flags: NodeFlags);
+    
+    /// Allows downcasting to concrete node types
+    /// This is needed for type checking to examine specific node properties
+    fn as_any(&self) -> &dyn std::any::Any;
 }
 
 /// Base implementation for all AST nodes
@@ -82,6 +87,10 @@ impl Node for NodeBase {
     fn set_flags(&mut self, flags: NodeFlags) {
         self.flags = flags;
     }
+    
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 // Implement Node for each AST node type
@@ -104,6 +113,9 @@ impl Node for SourceFile {
     fn set_flags(&mut self, flags: NodeFlags) {
         self.base.set_flags(flags)
     }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 impl Node for Identifier {
@@ -124,6 +136,9 @@ impl Node for Identifier {
     }
     fn set_flags(&mut self, flags: NodeFlags) {
         self.base.set_flags(flags)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 
@@ -146,6 +161,9 @@ impl Node for StringLiteral {
     fn set_flags(&mut self, flags: NodeFlags) {
         self.base.set_flags(flags)
     }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 impl Node for NumericLiteral {
@@ -166,6 +184,9 @@ impl Node for NumericLiteral {
     }
     fn set_flags(&mut self, flags: NodeFlags) {
         self.base.set_flags(flags)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 
@@ -188,6 +209,9 @@ impl Node for BinaryExpression {
     fn set_flags(&mut self, flags: NodeFlags) {
         self.base.set_flags(flags)
     }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 impl Node for FunctionDeclaration {
@@ -208,6 +232,9 @@ impl Node for FunctionDeclaration {
     }
     fn set_flags(&mut self, flags: NodeFlags) {
         self.base.set_flags(flags)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 
@@ -230,6 +257,9 @@ impl Node for ParameterDeclaration {
     fn set_flags(&mut self, flags: NodeFlags) {
         self.base.set_flags(flags)
     }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 impl Node for Block {
@@ -250,6 +280,9 @@ impl Node for Block {
     }
     fn set_flags(&mut self, flags: NodeFlags) {
         self.base.set_flags(flags)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 
@@ -272,6 +305,9 @@ impl Node for ReturnStatement {
     fn set_flags(&mut self, flags: NodeFlags) {
         self.base.set_flags(flags)
     }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 impl Node for ExpressionStatement {
@@ -293,6 +329,9 @@ impl Node for ExpressionStatement {
     fn set_flags(&mut self, flags: NodeFlags) {
         self.base.set_flags(flags)
     }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 impl Node for CallExpression {
@@ -313,6 +352,9 @@ impl Node for CallExpression {
     }
     fn set_flags(&mut self, flags: NodeFlags) {
         self.base.set_flags(flags)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 
@@ -443,6 +485,9 @@ impl Node for TypeReference {
     }
     fn set_flags(&mut self, flags: NodeFlags) {
         self.base.set_flags(flags)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 

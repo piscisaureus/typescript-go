@@ -4,7 +4,7 @@ This document tracks the progress of translating the Go implementation of the Ty
 
 ## Overview
 
-The current implementation focuses on building a minimal compiler that can parse and represent the demonstration program:
+The current implementation focuses on building a minimal compiler that can parse and type-check the demonstration program:
 
 ```typescript
 function demo(a: string, b: number): string {
@@ -21,7 +21,7 @@ demo("hello", 42);
 - **Status**: Partially implemented
 - **Details**:
   - Basic AST node structures defined
-  - Node trait for common behavior
+  - Node trait for common behavior with `as_any()` for downcasting
   - NodeBase for shared properties
   - Implementations for key node types: SourceFile, Identifier, StringLiteral, NumericLiteral, etc.
   - TypeReference was added to handle type annotations
@@ -61,19 +61,39 @@ demo("hello", 42);
   - Successfully parses the demo program
   - Added specific handling for type annotations in function parameters and return types
 
+### Type System
+- Corresponds to `internal/checker/types.go` in Go
+- **Status**: Basic implementation
+- **Details**:
+  - Created basic type enum (String, Number, Boolean, etc.)
+  - Implemented function signature handling
+  - Built scoping system for tracking variables and functions
+  - Added type compatibility checking for assignments/expressions
+
+### Type Checker
+- Corresponds to `internal/checker/checker.go` in Go
+- **Status**: Basic implementation
+- **Details**:
+  - Type checking for function calls
+  - Type checking for binary expressions (e.g., string + number)
+  - Type checking for return statements
+  - Type verification for function parameters and return types
+  - Error reporting for type mismatches
+
 ### Error Handling
 - **Status**: Basic implementation
 - **Details**:
   - Diagnostic structure for errors
-  - Basic error types and codes
+  - Error types and codes for parsing and type checking
   - Error formatting
-  - Not yet providing detailed location information
+  - Basic position tracking
 
 ### Compiler Framework
-- **Status**: Skeleton implementation
+- **Status**: Basic implementation
 - **Details**:
-  - Basic Program struct
-  - Placeholder for type checking logic
+  - Program struct that manages compilation
+  - Support for type checking a single source file
+  - Diagnostic collection and reporting
   - No code generation yet
 
 ## Major Deviations from Go Implementation
@@ -82,6 +102,7 @@ demo("hello", 42);
    - Using Rust's trait system instead of Go's interfaces
    - `Node` is a trait with common methods
    - Using `Rc<dyn Node>` for polymorphic nodes instead of interface pointers
+   - Using Rust's enums for the type system rather than flags-based approach
 
 2. **Memory Management**:
    - Using Rust's reference counting (`Rc`) instead of Go's garbage collection
@@ -95,18 +116,34 @@ demo("hello", 42);
    - Using Rust's Result type for error propagation instead of Go's explicit error returns
    - Custom Diagnostic type for structured error reporting
 
+5. **Downcasting**:
+   - Using Rust's `Any` trait and `downcast_ref` for examining specific node types
+   - Added `as_any()` method to the Node trait for this purpose
+
 ## Next Steps
 
-1. **Type Checking System**:
-   - Implement basic type checking for function calls and operations
-   - Verify type compatibility in assignments and expressions
+1. **Type Inference**:
+   - Add more sophisticated type inference beyond basic literals
+   - Handle more complex expressions
 
 2. **Code Generation**:
    - Infrastructure for generating JavaScript or other target code
+   - Emit compiled JavaScript for the demo program
 
 3. **Extended Language Features**:
    - Expand parser to handle more TypeScript constructs
+   - Support more complex type annotations
 
 4. **Better Error Reporting**:
    - Improve position tracking
    - Add line and column information to errors
+
+## Implementation Progress
+
+Current estimated progress: 40%
+
+- AST: 40%
+- Scanner: 40%
+- Parser: 40%
+- Type Checker: 30%
+- Code Generation: 0%
