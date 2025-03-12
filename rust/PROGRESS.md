@@ -156,11 +156,11 @@ demo("hello", 42);
 
 ## Implementation Progress
 
-Current estimated progress: 65%
+Current estimated progress: 67%
 
 - AST: 70%
 - Scanner: 75%
-- Parser: 75%
+- Parser: 78%
 - Type Checker: 60%
 - Code Generation: 0%
 
@@ -201,3 +201,10 @@ The Rust implementation can now:
    - Object literals test suite
    - Function expressions test cases
    - Comparison of error detection between our compiler and Deno
+
+## Recent Improvements
+
+- Fixed issue with function declarations requiring an implementation
+- All unit tests and test harness tests are now passing
+- Improved error reporting for function declarations
+- Better type checking for object vs array types

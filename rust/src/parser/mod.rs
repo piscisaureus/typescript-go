@@ -349,7 +349,16 @@ impl Parser {
         let body = if self.token == Kind::OpenBraceToken {
             Some(self.parse_block()?)
         } else {
-            None
+            // Function declaration requires a body
+            return Err(Diagnostic::new(
+                DiagnosticCode::SyntaxError,
+                "Function implementation is missing or not immediately following the declaration",
+                &self.file_name,
+                0, // TODO: Get actual position
+                0, // TODO: Get actual length
+                0, // TODO: Get actual line
+                0, // TODO: Get actual column
+            ));
         };
 
         // Create function declaration

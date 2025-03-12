@@ -28,4 +28,7 @@ have been placed in the rust/test directory. Some of them pass type checking
 while others fail - you may run `deno check <filename>` to see which ones pass
 and which ones fail. The Rust codebase should reproduce the error messages you
 get from Deno exactly. As you implement more TypeScript features, be sure to add
-tests for them as well.
+tests for them as well. You can run these tests with
+`cargo run --bin test-harness`.
+
+There are unit tests in the code base as well, use `cargo test` to run them.

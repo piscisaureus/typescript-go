@@ -628,7 +628,7 @@ impl Node for PropertySignature {
 }
 
 /// Represents an object type literal (e.g. { prop: Type })
-/// In Go, this is similar to TypeLiteralNode in internal/ast/ast.go 
+/// In Go, this is similar to TypeLiteralNode in internal/ast/ast.go
 /// The Go implementation handles this through ObjectType, but we use TypeLiteral
 /// to better match TypeScript's AST terminology
 #[derive(Debug, Clone)]

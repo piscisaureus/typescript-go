@@ -108,7 +108,7 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_return_type_syntax() {
+    fn test_missing_function_body() {
         expect_parse_error("function foo(): {}");
     }
 }
