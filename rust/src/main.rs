@@ -94,11 +94,11 @@ fn main() {
             // Create a program and perform type checking
             println!("\nPerforming type checking..."); // DEBUG: not in Go
             let mut program = compiler::create_program(source_file);
-            
+
             match program.type_check() {
                 Ok(_) => {
                     println!("Type checking completed!"); // DEBUG: not in Go
-                    
+
                     // Print any type checking diagnostics
                     let diagnostics = program.get_diagnostics();
                     if !diagnostics.is_empty() {

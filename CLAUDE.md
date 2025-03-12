@@ -5,17 +5,8 @@ We are going to translate the entire project to Rust. The rust code lives in the
 rust/ subdirectory. We don't make any changes outside the rust/ directory.
 
 The current goal is to build a project structure with the same functionality as
-the go project, without implementing the complete TypeScript language. The only
-thing it should be able to compile is this toy program:
-
-```typescript
-// demo.ts
-function demo(a: string, b: number): string {
-  return a + b;
-}
-
-demo("hello", 42);
-```
+the go project, while incrementally implementing the complete TypeScript
+language.
 
 Try to follow the structure of to the go code as closely as possible.
 
@@ -29,3 +20,10 @@ free to remove debug statements that you added but no longer find useful.
 Document implementation progress in rust/PROGRESS.md. You should write down
 which parts of the Go codebase have been (partially) translated to rust and any
 major deviations you made. Estimate progress as a percentage.
+
+Some test typescript programs that were not part of the original Go codebase
+have been placed in the rust/test directory. Some of them pass type checking
+while others fail - you may run `deno check <filename>` to see which ones pass
+and which ones fail. The Rust codebase should reproduce the error messages you
+get from Deno exactly. As you implement more TypeScript features, be sure to add
+tests for them as well.

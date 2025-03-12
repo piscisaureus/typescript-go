@@ -77,12 +77,29 @@ impl TypeChecker {
         }
     }
 
+    /// Initialize with built-in functions and types
+    fn add_built_ins(&self, context: &mut TypeContext) {
+        // Add the String function that converts values to strings
+        let string_params = vec![Type::Any];
+        let string_signature = FunctionSignature {
+            parameters: string_params,
+            return_type: Type::String,
+        };
+        context.add_function("String".to_string(), string_signature);
+    }
+
     /// Check a source file for type errors
     pub fn check_source_file(&mut self, source_file: Rc<ast::SourceFile>) -> Result<()> {
         // Create a type context for this source file
         let mut context = TypeContext::new();
 
-        // Process statements in the source file
+        // Add built-in functions and types
+        self.add_built_ins(&mut context);
+
+        // First pass: Create context with function declarations
+        self.register_declarations(&mut context, &source_file)?;
+
+        // Second pass: Check all statements
         for statement in &source_file.statements {
             self.check_statement(&mut context, Rc::clone(statement))?;
         }
@@ -90,12 +107,71 @@ impl TypeChecker {
         Ok(())
     }
 
+    /// Register all declarations in the source file
+    fn register_declarations(
+        &mut self,
+        context: &mut TypeContext,
+        source_file: &ast::SourceFile,
+    ) -> Result<()> {
+        // First pass: Register all function declarations
+        for statement in &source_file.statements {
+            if statement.kind() == ast::Kind::FunctionDeclaration {
+                if let Some(func_decl) = statement
+                    .as_any()
+                    .downcast_ref::<ast::FunctionDeclaration>()
+                {
+                    // Create parameter types
+                    let mut param_types = Vec::new();
+                    for param in &func_decl.parameters {
+                        let param_type = if let Some(type_annotation) = &param.type_annotation {
+                            self.get_type_from_node(type_annotation.clone())?
+                        } else {
+                            Type::Any
+                        };
+                        param_types.push(param_type);
+                    }
+
+                    // Get return type
+                    let return_type = if let Some(return_type) = &func_decl.return_type {
+                        self.get_type_from_node(return_type.clone())?
+                    } else {
+                        Type::Any
+                    };
+
+                    // Create function signature
+                    let signature = FunctionSignature {
+                        parameters: param_types,
+                        return_type,
+                    };
+
+                    // Add function to context
+                    if let Some(name) = &func_decl.name {
+                        context.add_function(name.text.clone(), signature.clone());
+
+                        // Also add the function as a variable of function type
+                        context
+                            .add_variable(name.text.clone(), Type::Function(Box::new(signature)));
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Check a statement node
-    fn check_statement(&mut self, context: &mut TypeContext, statement: Rc<dyn ast::Node>) -> Result<()> {
+    fn check_statement(
+        &mut self,
+        context: &mut TypeContext,
+        statement: Rc<dyn ast::Node>,
+    ) -> Result<()> {
         match statement.kind() {
             ast::Kind::FunctionDeclaration => {
                 // Downcast to FunctionDeclaration
-                if let Some(func_decl) = statement.as_any().downcast_ref::<ast::FunctionDeclaration>() {
+                if let Some(func_decl) = statement
+                    .as_any()
+                    .downcast_ref::<ast::FunctionDeclaration>()
+                {
                     // Register function in the type context
                     let return_type = if let Some(return_type) = &func_decl.return_type {
                         self.get_type_from_node(return_type.clone())?
@@ -132,7 +208,8 @@ impl TypeChecker {
 
                         // Add parameters to scope
                         for (i, param) in func_decl.parameters.iter().enumerate() {
-                            let param_type = signature.parameters.get(i).cloned().unwrap_or(Type::Any);
+                            let param_type =
+                                signature.parameters.get(i).cloned().unwrap_or(Type::Any);
                             context.add_variable(param.name.text.clone(), param_type);
                         }
 
@@ -148,18 +225,22 @@ impl TypeChecker {
             }
             ast::Kind::ExpressionStatement => {
                 // Downcast to ExpressionStatement
-                if let Some(expr_stmt) = statement.as_any().downcast_ref::<ast::ExpressionStatement>() {
+                if let Some(expr_stmt) = statement
+                    .as_any()
+                    .downcast_ref::<ast::ExpressionStatement>()
+                {
                     // Just check the expression
                     self.check_expression(context, Rc::clone(&expr_stmt.expression))?;
                 }
             }
             ast::Kind::ReturnStatement => {
                 // Downcast to ReturnStatement
-                if let Some(return_stmt) = statement.as_any().downcast_ref::<ast::ReturnStatement>() {
+                if let Some(return_stmt) = statement.as_any().downcast_ref::<ast::ReturnStatement>()
+                {
                     // Check return expression if it exists
                     if let Some(expr) = &return_stmt.expression {
                         let expr_type = self.check_expression(context, Rc::clone(expr))?;
-                        
+
                         // We would check that expr_type is compatible with function return type here
                         // For now, we'll just make sure it's not Error type
                         if expr_type == Type::Error {
@@ -182,19 +263,115 @@ impl TypeChecker {
     }
 
     /// Check an expression node and return its type
-    fn check_expression(&mut self, context: &TypeContext, expression: Rc<dyn ast::Node>) -> Result<Type> {
+    fn check_expression(
+        &mut self,
+        context: &TypeContext,
+        expression: Rc<dyn ast::Node>,
+    ) -> Result<Type> {
         match expression.kind() {
+            ast::Kind::PropertyAccessExpression => {
+                // Handle property access expression (e.g., d.join)
+                if let Some(prop_access) = expression
+                    .as_any()
+                    .downcast_ref::<ast::PropertyAccessExpression>()
+                {
+                    // Check the object expression
+                    let obj_type =
+                        self.check_expression(context, Rc::clone(&prop_access.expression))?;
+
+                    // Get the property name
+                    let prop_name = &prop_access.name.text;
+
+                    // Check for array type methods
+                    if let Type::Array(_) = obj_type {
+                        // For arrays, check common methods
+                        if prop_name == "join" {
+                            // Simplified handling - join method takes a string and returns a string
+                            return Ok(Type::Function(Box::new(FunctionSignature {
+                                parameters: vec![Type::String],
+                                return_type: Type::String,
+                            })));
+                        }
+                    }
+
+                    // Default handling - we don't have full property information yet
+                    // In a real implementation, we'd look up properties based on the object type
+                    return Ok(Type::Any);
+                }
+
+                return Ok(Type::Error);
+            }
+
             ast::Kind::CallExpression => {
                 // Downcast to CallExpression
                 if let Some(call_expr) = expression.as_any().downcast_ref::<ast::CallExpression>() {
                     // Get the function being called
                     let func_expr = &call_expr.expression;
-                    
-                    // For now, we only handle identifier function calls
-                    if func_expr.kind() == ast::Kind::Identifier {
-                        if let Some(ident) = func_expr.as_any().downcast_ref::<ast::Identifier>() {
-                            // Look up function in context
-                            if let Some(signature) = context.get_function(&ident.text) {
+
+                    // Get the function type
+                    let func_type = self.check_expression(context, Rc::clone(func_expr))?;
+
+                    // Handle different types of function expressions
+                    match func_expr.kind() {
+                        ast::Kind::Identifier => {
+                            // Direct function call (e.g., demo(...))
+                            if let Some(ident) =
+                                func_expr.as_any().downcast_ref::<ast::Identifier>()
+                            {
+                                // Look up function in context
+                                if let Some(signature) = context.get_function(&ident.text) {
+                                    // Check argument count
+                                    if call_expr.arguments.len() != signature.parameters.len() {
+                                        self.diagnostics.push(Diagnostic::simple(
+                                            DiagnosticCode::ArgumentCountMismatch,
+                                            format!(
+                                                "Expected {} arguments but got {}",
+                                                signature.parameters.len(),
+                                                call_expr.arguments.len()
+                                            ),
+                                            call_expr.pos(),
+                                            call_expr.end(),
+                                        ));
+                                        return Ok(Type::Error);
+                                    }
+
+                                    // Check each argument type
+                                    for (i, arg) in call_expr.arguments.iter().enumerate() {
+                                        let arg_type =
+                                            self.check_expression(context, Rc::clone(arg))?;
+                                        let expected_type = &signature.parameters[i];
+
+                                        if !self.is_assignable_to(&arg_type, expected_type) {
+                                            self.diagnostics.push(Diagnostic::simple(
+                                                DiagnosticCode::TypeMismatch,
+                                                format!(
+                                                    "Argument of type {:?} is not assignable to parameter of type {:?}",
+                                                    arg_type,
+                                                    expected_type
+                                                ),
+                                                arg.pos(),
+                                                arg.end(),
+                                            ));
+                                            return Ok(Type::Error);
+                                        }
+                                    }
+
+                                    // Return function's return type
+                                    return Ok(signature.return_type);
+                                } else {
+                                    self.diagnostics.push(Diagnostic::simple(
+                                        DiagnosticCode::UndefinedFunction,
+                                        format!("Cannot find function '{}'", ident.text),
+                                        func_expr.pos(),
+                                        func_expr.end(),
+                                    ));
+                                    return Ok(Type::Error);
+                                }
+                            }
+                        }
+                        ast::Kind::PropertyAccessExpression => {
+                            // Method call (e.g., d.join(...))
+                            if let Type::Function(signature) = func_type {
                                 // Check argument count
                                 if call_expr.arguments.len() != signature.parameters.len() {
                                     self.diagnostics.push(Diagnostic::simple(
@@ -210,11 +387,12 @@ impl TypeChecker {
                                     return Ok(Type::Error);
                                 }
 
-                                // Check each argument type
+                                // Check each argument
                                 for (i, arg) in call_expr.arguments.iter().enumerate() {
-                                    let arg_type = self.check_expression(context, Rc::clone(arg))?;
+                                    let arg_type =
+                                        self.check_expression(context, Rc::clone(arg))?;
                                     let expected_type = &signature.parameters[i];
-                                    
+
                                     if !self.is_assignable_to(&arg_type, expected_type) {
                                         self.diagnostics.push(Diagnostic::simple(
                                             DiagnosticCode::TypeMismatch,
@@ -230,21 +408,14 @@ impl TypeChecker {
                                     }
                                 }
 
-                                // Return function's return type
+                                // Return the function's return type
                                 return Ok(signature.return_type);
-                            } else {
-                                self.diagnostics.push(Diagnostic::simple(
-                                    DiagnosticCode::UndefinedFunction,
-                                    format!("Cannot find function '{}'", ident.text),
-                                    func_expr.pos(),
-                                    func_expr.end(),
-                                ));
-                                return Ok(Type::Error);
                             }
                         }
+                        _ => {}
                     }
-                    
-                    // For non-identifier function expressions
+
+                    // If we get here, it's an invalid call target
                     self.diagnostics.push(Diagnostic::simple(
                         DiagnosticCode::InvalidCallTarget,
                         "Invalid call target".to_string(),
@@ -256,9 +427,12 @@ impl TypeChecker {
             }
             ast::Kind::BinaryExpression => {
                 // Downcast to BinaryExpression
-                if let Some(binary_expr) = expression.as_any().downcast_ref::<ast::BinaryExpression>() {
+                if let Some(binary_expr) =
+                    expression.as_any().downcast_ref::<ast::BinaryExpression>()
+                {
                     let left_type = self.check_expression(context, Rc::clone(&binary_expr.left))?;
-                    let right_type = self.check_expression(context, Rc::clone(&binary_expr.right))?;
+                    let right_type =
+                        self.check_expression(context, Rc::clone(&binary_expr.right))?;
 
                     // Handle addition operator
                     if binary_expr.operator_token == ast::Kind::PlusToken {
@@ -298,6 +472,16 @@ impl TypeChecker {
             ast::Kind::Identifier => {
                 // Downcast to Identifier
                 if let Some(ident) = expression.as_any().downcast_ref::<ast::Identifier>() {
+                    // Special case for the built-in String constructor/function
+                    if ident.text == "String" {
+                        let string_params = vec![Type::Any];
+                        let string_signature = FunctionSignature {
+                            parameters: string_params,
+                            return_type: Type::String,
+                        };
+                        return Ok(Type::Function(Box::new(string_signature)));
+                    }
+
                     // Look up variable in context
                     if let Some(var_type) = context.get_variable(&ident.text) {
                         return Ok(var_type);
@@ -322,33 +506,37 @@ impl TypeChecker {
                 return Ok(Type::Boolean);
             }
             ast::Kind::ArrayLiteralExpression => {
-                if let Some(array_expr) = expression.as_any().downcast_ref::<ast::ArrayLiteralExpression>() {
+                if let Some(array_expr) = expression
+                    .as_any()
+                    .downcast_ref::<ast::ArrayLiteralExpression>()
+                {
                     // Check if array is empty
                     if array_expr.elements.is_empty() {
                         // Empty array - default to Any[]
                         return Ok(Type::Array(Box::new(Type::Any)));
                     }
-                    
+
                     // Try to infer the element type from the first element
-                    let first_elem_type = self.check_expression(context, Rc::clone(&array_expr.elements[0]))?;
-                    
+                    let first_elem_type =
+                        self.check_expression(context, Rc::clone(&array_expr.elements[0]))?;
+
                     // Check if all elements have compatible types
                     let mut common_type = first_elem_type.clone();
                     for elem in &array_expr.elements[1..] {
                         let elem_type = self.check_expression(context, Rc::clone(elem))?;
-                        
+
                         // If types don't match exactly, default to Any
                         if elem_type != common_type {
                             common_type = Type::Any;
                             break;
                         }
                     }
-                    
+
                     return Ok(Type::Array(Box::new(common_type)));
                 }
-                
+
                 // Fallback for any unexpected issues
-                return Ok(Type::Array(Box::new(Type::Any)))
+                return Ok(Type::Array(Box::new(Type::Any)));
             }
             _ => {
                 // Unhandled expression type
@@ -382,7 +570,7 @@ impl TypeChecker {
                         };
                         return Ok(Type::Array(Box::new(element_type)));
                     }
-                    
+
                     // Regular non-array types
                     match type_ref.type_name.text.as_str() {
                         "string" => Ok(Type::String),
@@ -422,17 +610,17 @@ impl TypeChecker {
                 // Check element type compatibility
                 self.is_assignable_to(src_elem_type, tgt_elem_type)
             }
-            
+
             // In TypeScript, numbers can be coerced to strings during string concatenation,
             // but a Number type is not assignable to a String parameter
             (Type::Number, Type::String) => false,
-            
+
             // Similarly, booleans are not assignable to strings in TypeScript
             (Type::Boolean, Type::String) => false,
-            
+
             // Add more special cases as needed
             // ...
-            
+
             // By default, different types are not assignable
             _ => false,
         }

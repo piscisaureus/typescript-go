@@ -163,20 +163,22 @@ impl Parser {
             self.next_token();
             println!("Parsing return type, token: {:?}", self.token); // DEBUG: not in Go
 
-            if self.token == Kind::StringKeyword || self.token == Kind::NumberKeyword || 
-               self.token == Kind::Identifier {
+            if self.token == Kind::StringKeyword
+                || self.token == Kind::NumberKeyword
+                || self.token == Kind::Identifier
+            {
                 let type_text = self.scanner.token_text().to_owned();
                 let type_identifier = Rc::new(ast::Identifier {
                     base: ast::NodeBase::new(Kind::Identifier),
                     text: type_text,
                 });
-                
+
                 self.next_token();
-                
+
                 // Check if this is an array type (has [] at the end)
                 let is_array_type = if self.token == Kind::OpenBracketToken {
                     self.next_token(); // consume '['
-                    
+
                     // Check for and consume ']'
                     if self.token != Kind::CloseBracketToken {
                         return Err(Diagnostic::new(
@@ -189,7 +191,7 @@ impl Parser {
                             0, // TODO: Get actual column
                         ));
                     }
-                    
+
                     self.next_token(); // consume ']'
                     true
                 } else {
@@ -328,20 +330,22 @@ impl Parser {
             println!("  Found colon, parsing type, token: {:?}", self.token); // DEBUG: not in Go
 
             // Parse the type
-            if self.token == Kind::StringKeyword || self.token == Kind::NumberKeyword || 
-               self.token == Kind::Identifier {
+            if self.token == Kind::StringKeyword
+                || self.token == Kind::NumberKeyword
+                || self.token == Kind::Identifier
+            {
                 let type_text = self.scanner.token_text().to_owned();
                 let type_identifier = Rc::new(ast::Identifier {
                     base: ast::NodeBase::new(Kind::Identifier),
                     text: type_text,
                 });
-                
+
                 self.next_token();
-                
+
                 // Check if this is an array type (has [] at the end)
                 let is_array_type = if self.token == Kind::OpenBracketToken {
                     self.next_token(); // consume '['
-                    
+
                     // Check for and consume ']'
                     if self.token != Kind::CloseBracketToken {
                         return Err(Diagnostic::new(
@@ -354,7 +358,7 @@ impl Parser {
                             0, // TODO: Get actual column
                         ));
                     }
-                    
+
                     self.next_token(); // consume ']'
                     true
                 } else {
@@ -509,57 +513,57 @@ impl Parser {
     /// Parse a binary expression
     /// Corresponds to parseBinaryExpression in Go
     fn parse_binary_expression(&mut self) -> Result<Rc<dyn ast::Node>> {
-        let left = self.parse_primary_expression()?;
+        // Parse the left operand
+        let mut left = self.parse_primary_expression()?;
 
-        if self.token == Kind::PlusToken {
+        // Continue parsing binary operators as long as they appear
+        while self.token == Kind::PlusToken {
             let operator = self.token;
             self.next_token();
 
+            // Parse the right operand
             let right = self.parse_primary_expression()?;
 
-            let binary_expr = Rc::new(ast::BinaryExpression {
+            // Create a binary expression with the left and right operands
+            left = Rc::new(ast::BinaryExpression {
                 base: ast::NodeBase::new(Kind::BinaryExpression),
                 left,
                 operator_token: operator,
                 right,
-            });
-
-            Ok(binary_expr as Rc<dyn ast::Node>)
-        } else {
-            Ok(left)
+            }) as Rc<dyn ast::Node>;
         }
+
+        Ok(left)
     }
 
     /// Parse a primary expression
     /// Corresponds to parsePrimaryExpression in Go
     fn parse_primary_expression(&mut self) -> Result<Rc<dyn ast::Node>> {
-        match self.token {
+        let mut expression = match self.token {
             Kind::Identifier => {
                 let name_text = self.scanner.token_text().to_owned();
-                
+
                 // Special handling for boolean literals (true/false)
                 if name_text == "true" || name_text == "false" {
                     let value = name_text == "true";
                     let boolean_literal = Rc::new(ast::BooleanLiteral {
-                        base: ast::NodeBase::new(Kind::TrueKeyword), // Use TrueKeyword for both true/false
+                        base: ast::NodeBase::new(if value {
+                            Kind::TrueKeyword
+                        } else {
+                            Kind::FalseKeyword
+                        }),
                         value,
                     });
                     self.next_token();
                     return Ok(boolean_literal as Rc<dyn ast::Node>);
                 }
-                
+
                 let identifier = Rc::new(ast::Identifier {
                     base: ast::NodeBase::new(Kind::Identifier),
                     text: name_text,
                 });
                 self.next_token();
-
-                // Check for function call
-                if self.token == Kind::OpenParenToken {
-                    self.parse_call_expression(identifier as Rc<dyn ast::Node>)
-                } else {
-                    Ok(identifier as Rc<dyn ast::Node>)
-                }
+                identifier as Rc<dyn ast::Node>
             }
             Kind::StringLiteral => {
                 let text = self.scanner.token_text().to_owned();
@@ -568,7 +572,7 @@ impl Parser {
                     text,
                 });
                 self.next_token();
-                Ok(string_literal as Rc<dyn ast::Node>)
+                string_literal as Rc<dyn ast::Node>
             }
             Kind::NumericLiteral => {
                 let text = self.scanner.token_text().to_owned();
@@ -579,7 +583,7 @@ impl Parser {
                     value,
                 });
                 self.next_token();
-                Ok(number_literal as Rc<dyn ast::Node>)
+                number_literal as Rc<dyn ast::Node>
             }
             Kind::TrueKeyword | Kind::FalseKeyword => {
                 let value = self.token == Kind::TrueKeyword;
@@ -588,14 +592,39 @@ impl Parser {
                     value,
                 });
                 self.next_token();
-                Ok(boolean_literal as Rc<dyn ast::Node>)
+                boolean_literal as Rc<dyn ast::Node>
             }
             Kind::OpenBracketToken => {
                 // Parse array literal
-                self.parse_array_literal_expression()
+                self.parse_array_literal_expression()?
+            }
+            Kind::OpenBraceToken => {
+                // For object literals - simplified empty object handling for now
+                self.next_token(); // consume '{'
+
+                // Expect '}'
+                if self.token != Kind::CloseBraceToken {
+                    return Err(Diagnostic::new(
+                        DiagnosticCode::SyntaxError,
+                        "Expected '}' to close object literal",
+                        &self.file_name,
+                        0, // TODO: Get actual position
+                        0, // TODO: Get actual length
+                        0, // TODO: Get actual line
+                        0, // TODO: Get actual column
+                    ));
+                }
+
+                self.next_token(); // consume '}'
+
+                // Create empty object literal node
+                Rc::new(ast::ObjectLiteralExpression {
+                    base: ast::NodeBase::new(Kind::ObjectLiteralExpression),
+                    properties: Vec::new(),
+                }) as Rc<dyn ast::Node>
             }
             _ => {
-                Err(Diagnostic::new(
+                return Err(Diagnostic::new(
                     DiagnosticCode::SyntaxError,
                     &format!("Unexpected token: {:?}", self.token),
                     &self.file_name,
@@ -603,9 +632,56 @@ impl Parser {
                     0, // TODO: Get actual length
                     0, // TODO: Get actual line
                     0, // TODO: Get actual column
-                ))
+                ));
+            }
+        };
+
+        // Handle post-fix expressions (function calls, property access)
+        loop {
+            match self.token {
+                Kind::OpenParenToken => {
+                    // Function call
+                    expression = self.parse_call_expression(expression)?;
+                }
+                Kind::DotToken => {
+                    // Property access
+                    self.next_token(); // Consume '.'
+
+                    // Expect property name (identifier)
+                    if self.token != Kind::Identifier {
+                        return Err(Diagnostic::new(
+                            DiagnosticCode::SyntaxError,
+                            "Expected identifier after '.'",
+                            &self.file_name,
+                            0, // TODO: Get actual position
+                            0, // TODO: Get actual length
+                            0, // TODO: Get actual line
+                            0, // TODO: Get actual column
+                        ));
+                    }
+
+                    let property_text = self.scanner.token_text().to_owned();
+                    let property_name = Rc::new(ast::Identifier {
+                        base: ast::NodeBase::new(Kind::Identifier),
+                        text: property_text,
+                    });
+                    self.next_token();
+
+                    // Create property access expression
+                    expression = Rc::new(ast::PropertyAccessExpression {
+                        base: ast::NodeBase::new(Kind::PropertyAccessExpression),
+                        expression,
+                        name: property_name,
+                    }) as Rc<dyn ast::Node>;
+                }
+                _ => {
+                    // No more post-fix operations, break the loop
+                    break;
+                }
             }
         }
+
+        Ok(expression)
     }
 
     /// Parse a call expression
@@ -665,7 +741,7 @@ impl Parser {
 
         Ok(call_expr as Rc<dyn ast::Node>)
     }
-    
+
     /// Parse an array literal expression
     /// Corresponds to parseArrayLiteralExpression in Go
     fn parse_array_literal_expression(&mut self) -> Result<Rc<dyn ast::Node>> {

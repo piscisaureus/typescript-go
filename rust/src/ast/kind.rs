@@ -68,6 +68,7 @@ pub enum Kind {
     CallExpression,
     ArrayLiteralExpression,
     PropertyAccessExpression,
+    ObjectLiteralExpression,
     VariableDeclaration,
     VariableDeclarationList,
     VariableStatement,

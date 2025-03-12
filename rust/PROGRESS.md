@@ -1,10 +1,12 @@
 # TypeScript Compiler Rust Implementation Progress
 
-This document tracks the progress of translating the Go implementation of the TypeScript compiler to Rust.
+This document tracks the progress of translating the Go implementation of the
+TypeScript compiler to Rust.
 
 ## Overview
 
-The current implementation focuses on building a minimal compiler that can parse and type-check the demonstration program:
+The current implementation focuses on building a minimal compiler that can parse
+and type-check the demonstration program:
 
 ```typescript
 function demo(a: string, b: number): string {
@@ -17,16 +19,19 @@ demo("hello", 42);
 ## Implemented Components
 
 ### AST (Abstract Syntax Tree)
+
 - Corresponds to `internal/ast/ast.go` in Go
 - **Status**: Partially implemented
 - **Details**:
   - Basic AST node structures defined
   - Node trait for common behavior with `as_any()` for downcasting
   - NodeBase for shared properties
-  - Implementations for key node types: SourceFile, Identifier, StringLiteral, NumericLiteral, etc.
+  - Implementations for key node types: SourceFile, Identifier, StringLiteral,
+    NumericLiteral, etc.
   - TypeReference was added to handle type annotations
 
 ### AST Kind
+
 - Corresponds to `internal/ast/kind.go` in Go
 - **Status**: Partially implemented
 - **Details**:
@@ -35,6 +40,7 @@ demo("hello", 42);
   - TypeReference was added to support type annotations
 
 ### Node Flags
+
 - Corresponds to `internal/ast/nodeflags.go` in Go
 - **Status**: Implemented but not fully utilized
 - **Details**:
@@ -42,6 +48,7 @@ demo("hello", 42);
   - Currently only using the None flag
 
 ### Scanner
+
 - Corresponds to `internal/scanner/scanner.go` in Go
 - **Status**: Partially implemented
 - **Details**:
@@ -52,6 +59,7 @@ demo("hello", 42);
   - Added support for recognizing 'string' and 'number' keywords
 
 ### Parser
+
 - Corresponds to `internal/parser/parser.go` in Go
 - **Status**: Partially implemented
 - **Details**:
@@ -59,9 +67,11 @@ demo("hello", 42);
   - Can parse function declarations with parameters and return types
   - Handles basic expressions and statements
   - Successfully parses the demo program
-  - Added specific handling for type annotations in function parameters and return types
+  - Added specific handling for type annotations in function parameters and
+    return types
 
 ### Type System
+
 - Corresponds to `internal/checker/types.go` in Go
 - **Status**: Basic implementation
 - **Details**:
@@ -71,6 +81,7 @@ demo("hello", 42);
   - Added type compatibility checking for assignments/expressions
 
 ### Type Checker
+
 - Corresponds to `internal/checker/checker.go` in Go
 - **Status**: Basic implementation
 - **Details**:
@@ -81,6 +92,7 @@ demo("hello", 42);
   - Error reporting for type mismatches
 
 ### Error Handling
+
 - **Status**: Basic implementation
 - **Details**:
   - Diagnostic structure for errors
@@ -89,6 +101,7 @@ demo("hello", 42);
   - Basic position tracking
 
 ### Compiler Framework
+
 - **Status**: Basic implementation
 - **Details**:
   - Program struct that manages compilation
@@ -109,15 +122,18 @@ demo("hello", 42);
    - Explicit ownership of nodes in the AST
 
 3. **Type References**:
-   - Added explicit TypeReference node that doesn't exist in the original Go code
+   - Added explicit TypeReference node that doesn't exist in the original Go
+     code
    - This was needed to properly handle type annotations in the demo program
 
 4. **Error Handling**:
-   - Using Rust's Result type for error propagation instead of Go's explicit error returns
+   - Using Rust's Result type for error propagation instead of Go's explicit
+     error returns
    - Custom Diagnostic type for structured error reporting
 
 5. **Downcasting**:
-   - Using Rust's `Any` trait and `downcast_ref` for examining specific node types
+   - Using Rust's `Any` trait and `downcast_ref` for examining specific node
+     types
    - Added `as_any()` method to the Node trait for this purpose
 
 ## Next Steps
@@ -165,3 +181,8 @@ The Rust implementation can now:
    - Boolean literal support
    - Type compatibility rules (assignability)
    - Error reporting for type mismatches
+
+3. Testing:
+   - Test harness created to compare our results with Deno
+   - Support for pass/fail tests
+   - Comparison of error detection between our compiler and Deno

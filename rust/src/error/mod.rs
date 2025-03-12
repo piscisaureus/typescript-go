@@ -68,12 +68,7 @@ impl Diagnostic {
     }
 
     // Simpler constructor for type checking that doesn't require line/column info
-    pub fn simple(
-        code: DiagnosticCode,
-        message: String,
-        pos: usize,
-        end: usize,
-    ) -> Self {
+    pub fn simple(code: DiagnosticCode, message: String, pos: usize, end: usize) -> Self {
         Self {
             code,
             message,

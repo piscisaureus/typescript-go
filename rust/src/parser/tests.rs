@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use crate::parser::parse_source_file;
     use crate::ast::Kind;
+    use crate::parser::parse_source_file;
 
     fn parse_program(source: &str) -> Result<(), String> {
         match parse_source_file("test.ts", source) {
@@ -86,13 +86,15 @@ mod tests {
 
     #[test]
     fn test_demo_program() {
-        expect_parse_success("
+        expect_parse_success(
+            "
             function demo(a: string, b: number): string {
                 return a + b;
             }
             
             demo(\"hello\", 42);
-        ");
+        ",
+        );
     }
 
     #[test]

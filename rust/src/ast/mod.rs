@@ -37,7 +37,7 @@ pub trait Node: std::fmt::Debug {
     fn end(&self) -> usize;
     fn loc(&self) -> TextRange;
     fn set_flags(&mut self, flags: NodeFlags);
-    
+
     /// Allows downcasting to concrete node types
     /// This is needed for type checking to examine specific node properties
     fn as_any(&self) -> &dyn std::any::Any;
@@ -87,7 +87,7 @@ impl Node for NodeBase {
     fn set_flags(&mut self, flags: NodeFlags) {
         self.flags = flags;
     }
-    
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -556,6 +556,71 @@ impl Node for TypeReference {
     }
 }
 
+/// Represents a property access expression (e.g. obj.prop)
+/// In Go, this is the PropertyAccessExpression struct
+#[derive(Debug, Clone)]
+pub struct PropertyAccessExpression {
+    pub base: NodeBase,
+    pub expression: Rc<dyn Node>,
+    pub name: Rc<Identifier>,
+}
+
+impl Node for PropertyAccessExpression {
+    fn kind(&self) -> Kind {
+        self.base.kind()
+    }
+    fn flags(&self) -> NodeFlags {
+        self.base.flags()
+    }
+    fn pos(&self) -> usize {
+        self.base.pos()
+    }
+    fn end(&self) -> usize {
+        self.base.end()
+    }
+    fn loc(&self) -> TextRange {
+        self.base.loc()
+    }
+    fn set_flags(&mut self, flags: NodeFlags) {
+        self.base.set_flags(flags)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+/// Represents an object literal expression (e.g. {prop: value})
+/// In Go, this is the ObjectLiteralExpression struct
+#[derive(Debug, Clone)]
+pub struct ObjectLiteralExpression {
+    pub base: NodeBase,
+    pub properties: Vec<Rc<dyn Node>>,
+}
+
+impl Node for ObjectLiteralExpression {
+    fn kind(&self) -> Kind {
+        self.base.kind()
+    }
+    fn flags(&self) -> NodeFlags {
+        self.base.flags()
+    }
+    fn pos(&self) -> usize {
+        self.base.pos()
+    }
+    fn end(&self) -> usize {
+        self.base.end()
+    }
+    fn loc(&self) -> TextRange {
+        self.base.loc()
+    }
+    fn set_flags(&mut self, flags: NodeFlags) {
+        self.base.set_flags(flags)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
 /// Node factory creates and manages AST nodes
 /// In Go, this is the NodeFactory struct
 pub struct NodeFactory {
@@ -592,7 +657,11 @@ impl NodeFactory {
         })
     }
 
-    pub fn create_type_reference(&self, type_name: Rc<Identifier>, is_array_type: bool) -> Rc<TypeReference> {
+    pub fn create_type_reference(
+        &self,
+        type_name: Rc<Identifier>,
+        is_array_type: bool,
+    ) -> Rc<TypeReference> {
         Rc::new(TypeReference {
             base: NodeBase::new(Kind::TypeReference),
             type_name,
