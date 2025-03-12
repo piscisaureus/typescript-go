@@ -160,48 +160,9 @@ impl TypeChecker {
         pos: usize,
         end: usize,
     ) -> Diagnostic {
-        // For certain errors, adjust the position for better accuracy
-        let (adjusted_pos, adjusted_end) = match code {
-            DiagnosticCode::ArgumentCountMismatch => {
-                // Deno typically points to the final argument for "too many arguments"
-                // or to the opening paren for "too few arguments"
-                if message.contains("but got 5") {
-                    // In case of too many args, point to the "extra" argument
-                    // This is specific to the test case in fail.ts for now
-                    let target_line = "demo(\"hello\", 0, true, [\"world\"], \"extra\")";
-                    if let Some(line_pos) = self.source_text.find(target_line) {
-                        // Point to the extra parameter
-                        let extra_pos = line_pos + 34; // Position adjusted to match Deno at "extra" in the test
-                        (extra_pos, extra_pos + 7) // Target "extra" argument
-                    } else {
-                        (pos, end)
-                    }
-                } else {
-                    // Keep original position
-                    (pos, end)
-                }
-            }
-            DiagnosticCode::TypeMismatch => {
-                // For type mismatches, try to be more specific about the exact argument position
-                if message.contains("Object(None)") {
-                    // Point more specifically at the object literal
-                    let obj_pos = self.source_text[..end].rfind('{').unwrap_or(pos);
-                    (obj_pos, obj_pos + 2) // Point directly at the '{}'
-                } else if message.contains("Number") && message.contains("String") {
-                    // In our test case, this is line 8: demo(0, 0, true, [])
-                    // Point specifically at the first argument
-                    let line_8_pos = self.source_text.find("demo(0").unwrap_or(pos);
-                    if line_8_pos > 0 {
-                        (line_8_pos + 5, line_8_pos + 6) // Point directly at the '0' in "demo(0"
-                    } else {
-                        (pos, end)
-                    }
-                } else {
-                    (pos, end)
-                }
-            }
-            _ => (pos, end), // Use original positions for other diagnostics
-        };
+        // Use the provided positions without any special case handling
+        // This approach is cleaner and will apply generally rather than having special cases for tests
+        let (adjusted_pos, adjusted_end) = (pos, end);
 
         // Create a basic diagnostic
         let mut diag = Diagnostic::simple(code, message, adjusted_pos, adjusted_end);
@@ -214,7 +175,13 @@ impl TypeChecker {
             // Find the line by binary search
             let line_index = match self.line_map.binary_search(&adjusted_pos) {
                 Ok(exact) => exact,
-                Err(insertion) => insertion - 1,
+                Err(insertion) => {
+                    if insertion == 0 {
+                        0 // Handle positions before the first line start
+                    } else {
+                        insertion - 1
+                    }
+                }
             };
 
             // Calculate 1-based line and column
@@ -568,39 +535,33 @@ impl TypeChecker {
                             // Check type annotation if present
                             if let Some(type_anno) = &decl.type_annotation {
                                 var_type = self.get_type_from_node(type_anno.clone())?;
+
+                                // For TypeReference nodes, check if they reference an interface or other named type
+                                if type_anno.kind() == ast::Kind::TypeReference {
+                                    if let Some(type_ref) =
+                                        type_anno.as_any().downcast_ref::<ast::TypeReference>()
+                                    {
+                                        let type_name = &type_ref.type_name.text;
+
+                                        // Look up the type in context
+                                        if let Some(resolved_type) = context.get_type(type_name) {
+                                            var_type = resolved_type;
+                                        }
+                                    }
+                                }
                             }
 
                             // Check initializer if present
                             if let Some(init) = &decl.initializer {
                                 let init_type = self.check_expression(context, Rc::clone(init))?;
 
-                                // Special handling for object literals assigned to interfaces
+                                // For object-to-interface assignment, we need to handle extra properties separately
+                                // since they won't be caught by the assignability check
                                 if let (
                                     Type::Object(Some(init_props)),
                                     Type::Interface(interface_name, interface_props),
                                 ) = (&init_type, &var_type)
                                 {
-                                    // Check for missing required properties
-                                    for (prop_name, _) in interface_props {
-                                        if !init_props.iter().any(|(name, _)| name == prop_name) {
-                                            // Report missing property
-                                            self.diagnostics.push(self.create_diagnostic(
-                                                DiagnosticCode::MissingProperty,
-                                                format!(
-                                                    "Property '{}' is missing in type '{{ {} }}' but required in type '{}'",
-                                                    prop_name,
-                                                    init_props.iter()
-                                                        .map(|(name, typ)| format!("{}: {}", name, self.format_type(typ)))
-                                                        .collect::<Vec<_>>()
-                                                        .join("; "),
-                                                    interface_name
-                                                ),
-                                                init.pos(),
-                                                init.end(),
-                                            ));
-                                        }
-                                    }
-
                                     // Check for excess properties
                                     for (prop_name, _) in init_props {
                                         if !interface_props
@@ -620,29 +581,14 @@ impl TypeChecker {
                                             ));
                                         }
                                     }
-
-                                    // Check property type compatibility
-                                    for (init_name, init_type) in init_props {
-                                        if let Some((_, interface_type)) = interface_props
-                                            .iter()
-                                            .find(|(name, _)| name == init_name)
-                                        {
-                                            if !self.is_assignable_to(init_type, interface_type) {
-                                                // Report type mismatch for property
-                                                self.diagnostics.push(self.create_diagnostic(
-                                                    DiagnosticCode::PropertyTypeMismatch,
-                                                    format!(
-                                                        "Type '{}' is not assignable to type '{}'",
-                                                        self.format_type(init_type),
-                                                        self.format_type(interface_type)
-                                                    ),
-                                                    init.pos(),
-                                                    init.end(),
-                                                ));
-                                            }
-                                        }
-                                    }
                                 }
+
+                                // Save the fact that we're dealing with an object-to-interface assignment
+                                // to avoid duplicate type mismatch errors later
+                                let is_object_to_interface_assignment = matches!(
+                                    (&init_type, &var_type),
+                                    (Type::Object(Some(_)), Type::Interface(_, _))
+                                );
 
                                 // If we have both a type annotation and initializer, verify compatibility
                                 if decl.type_annotation.is_some() {
@@ -674,12 +620,12 @@ impl TypeChecker {
                                                         init_props
                                                             .iter()
                                                             .map(|(name, typ)| format!(
-                                                                "{}: {};",
+                                                                "{}: {}",
                                                                 name,
                                                                 self.format_type(typ)
                                                             ))
                                                             .collect::<Vec<_>>()
-                                                            .join(" ")
+                                                            .join("; ")
                                                     );
 
                                                     // Report missing property
@@ -728,8 +674,9 @@ impl TypeChecker {
                                                             };
 
                                                             // Report property type mismatch - Format like Deno
+                                                            // We know the exact location where the property value is defined
                                                             self.diagnostics.push(self.create_diagnostic(
-                                                                DiagnosticCode::PropertyTypeMismatch,
+                                                                DiagnosticCode::TypeMismatch, // Changed to TypeMismatch to be consistent
                                                                 format!(
                                                                     "Type '{}' is not assignable to type '{}'",
                                                                     self.format_type(init_prop_type), self.format_type(target_prop_type)
@@ -821,16 +768,20 @@ impl TypeChecker {
                                             }
                                             _ => {
                                                 // General type mismatch error
-                                                self.diagnostics.push(self.create_diagnostic(
-                                                    DiagnosticCode::TypeMismatch,
-                                                    format!(
-                                                        "Type '{}' is not assignable to type '{}'",
-                                                        self.format_type(&init_type),
-                                                        self.format_type(&var_type)
-                                                    ),
-                                                    init.pos(),
-                                                    init.end(),
-                                                ));
+                                                // Skip if we already reported property-specific errors
+                                                // for object-to-interface assignments
+                                                if !is_object_to_interface_assignment {
+                                                    self.diagnostics.push(self.create_diagnostic(
+                                                        DiagnosticCode::TypeMismatch,
+                                                        format!(
+                                                            "Type '{}' is not assignable to type '{}'",
+                                                            self.format_type(&init_type),
+                                                            self.format_type(&var_type)
+                                                        ),
+                                                        init.pos(),
+                                                        init.end(),
+                                                    ));
+                                                }
                                             }
                                         }
                                     }
@@ -945,6 +896,10 @@ impl TypeChecker {
                                 return Ok(prop_type.clone());
                             } else {
                                 // Property not found in object
+                                // Find the actual location in the source code where this property access happens
+                                let pos = prop_access.name.pos();
+                                let end = prop_access.name.end();
+
                                 self.diagnostics.push(self.create_diagnostic(
                                     DiagnosticCode::NonExistentProperty,
                                     format!(
@@ -952,8 +907,8 @@ impl TypeChecker {
                                         prop_name,
                                         self.format_type(&obj_type)
                                     ),
-                                    prop_access.name.pos(),
-                                    prop_access.name.end(),
+                                    pos,
+                                    end,
                                 ));
                                 // Continue to allow checking for more errors
                                 return Ok(Type::Error);
@@ -982,28 +937,22 @@ impl TypeChecker {
                         }
                         Type::Number => {
                             // Numbers don't have properties except for some standard ones
-                            if prop_name == "toLowerCase" {
-                                // Special case for the "toLowerCase" method test case
-                                self.diagnostics.push(self.create_diagnostic(
-                                    DiagnosticCode::InvalidMethodCall,
-                                    format!(
-                                        "Property 'toLowerCase' does not exist on type 'number'"
-                                    ),
-                                    prop_access.name.pos(),
-                                    prop_access.name.end(),
-                                ));
-                            } else {
-                                self.diagnostics.push(self.create_diagnostic(
-                                    DiagnosticCode::InvalidMethodCall,
-                                    format!(
-                                        "Property '{}' does not exist on type 'number'",
-                                        prop_name
-                                    ),
-                                    prop_access.name.pos(),
-                                    prop_access.name.end(),
-                                ));
-                            }
-                            return Ok(Type::Error);
+                            let pos = prop_access.name.pos();
+                            let end = prop_access.name.end();
+
+                            self.diagnostics.push(self.create_diagnostic(
+                                DiagnosticCode::InvalidMethodCall,
+                                format!("Property '{}' does not exist on type 'number'", prop_name),
+                                pos,
+                                end,
+                            ));
+
+                            // Return a dummy function type to avoid "Invalid call target" error
+                            // This matches TypeScript's behavior of only reporting one error
+                            return Ok(Type::Function(Box::new(FunctionSignature {
+                                parameters: vec![],
+                                return_type: Type::Any,
+                            })));
                         }
                         _ => {
                             // For other types, we'll just return Any for now
@@ -1401,9 +1350,9 @@ impl TypeChecker {
             Type::String => "string".to_string(),
             Type::Number => "number".to_string(),
             Type::Boolean => "boolean".to_string(),
-            Type::Void => "void".to_string(),
-            Type::Undefined => "undefined".to_string(),
-            Type::Null => "null".to_string(),
+            Type::_Void => "void".to_string(),
+            Type::_Undefined => "undefined".to_string(),
+            Type::_Null => "null".to_string(),
             Type::Array(elem_type) => format!("{}[]", self.format_type(elem_type)),
             Type::Object(None) => "{}".to_string(),
             Type::Object(Some(props)) => {

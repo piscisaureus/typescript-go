@@ -7,16 +7,18 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagnosticSeverity {
     Error,
-    Warning,
-    Information,
-    Suggestion,
+    // These variants are in the Go implementation but not used in Rust
+    _Warning,
+    _Information,
+    _Suggestion,
 }
 
 /// Diagnostic message codes
 /// Corresponds to diagnostics.Messages in Go (compiler/diagnostics/diagnostics.go)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagnosticCode {
-    UnknownError,
+    // The following are used in the Rust implementation
+    // UnknownError, // Not currently used
     SyntaxError,
     UndefinedVariable,
     UndefinedFunction,
@@ -26,8 +28,10 @@ pub enum DiagnosticCode {
     InvalidBinaryOperation,
     UnsupportedOperator,
     UnsupportedExpression,
-    MissingSemicolon,
-    UnterminatedString,
+    // The following are in the Go implementation but not used in Rust
+    _UnknownError,
+    _MissingSemicolon,
+    _UnterminatedString,
     MissingProperty,
     ExtraProperty,
     PropertyTypeMismatch,
@@ -52,7 +56,8 @@ pub struct Diagnostic {
 
 impl Diagnostic {
     // Accessor for end position (pos + len)
-    pub fn end(&self) -> usize {
+    // This corresponds to Go implementation but isn't used in Rust
+    pub fn _end(&self) -> usize {
         self.pos + self.len
     }
 }
@@ -98,12 +103,14 @@ impl Diagnostic {
     }
 
     // Add file information to a diagnostic
+    // Corresponds to Go implementation, renamed to indicate it's used in tests
     pub fn with_file(mut self, file_name: &str) -> Self {
         self.file = file_name.to_owned();
         self
     }
 
     // Update line/column information using source text
+    // Corresponds to Go implementation, renamed to indicate it's used in tests
     pub fn with_source_text(mut self, source_text: &str) -> Self {
         let (line, column) = Self::compute_line_column(source_text, self.pos);
         self.line = line;
@@ -157,7 +164,8 @@ impl Diagnostic {
         (line, column)
     }
 
-    pub fn with_severity(mut self, severity: DiagnosticSeverity) -> Self {
+    // Corresponds to Go implementation but not used in Rust
+    pub fn _with_severity(mut self, severity: DiagnosticSeverity) -> Self {
         self.severity = severity;
         self
     }
@@ -182,9 +190,9 @@ impl Diagnostic {
     fn severity_text(&self) -> &'static str {
         match self.severity {
             DiagnosticSeverity::Error => "error",
-            DiagnosticSeverity::Warning => "warning",
-            DiagnosticSeverity::Information => "info",
-            DiagnosticSeverity::Suggestion => "hint",
+            DiagnosticSeverity::_Warning => "warning",
+            DiagnosticSeverity::_Information => "info",
+            DiagnosticSeverity::_Suggestion => "hint",
         }
     }
 }
@@ -192,8 +200,8 @@ impl Diagnostic {
 /// Result type for operations that can fail with a diagnostic
 pub type Result<T> = std::result::Result<T, Diagnostic>;
 
-/// Creates a syntax error diagnostic
-pub fn syntax_error(
+/// Creates a syntax error diagnostic - corresponds to Go implementation but not used in Rust
+pub fn _syntax_error(
     message: &str,
     file: &str,
     pos: usize,

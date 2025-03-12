@@ -4,11 +4,9 @@
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use std::rc::Rc;
 use std::time::Instant;
 
 // Import from our main crate
-use typescript_rust::ast;
 use typescript_rust::compiler;
 use typescript_rust::error::Diagnostic;
 use typescript_rust::parser;
@@ -249,7 +247,7 @@ fn compare_results(file_path: &Path, rust_diagnostics: &[Diagnostic], deno_outpu
     let mut lines = deno_output.lines().peekable();
     while let Some(line) = lines.next() {
         // Look for TS error codes with [ERROR] or error: patterns
-        if (line.contains("TS") && (line.contains("[ERROR]") || line.contains("error:"))) {
+        if line.contains("TS") && (line.contains("[ERROR]") || line.contains("error:")) {
             // Extract the TS code
             let ts_code = if let Some(ts_start) = line.find("TS") {
                 if let Some(end) = line[ts_start..].find(" ") {

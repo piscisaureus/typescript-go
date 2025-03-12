@@ -47,7 +47,7 @@ pub struct Parser {
     _source_file_flags: u32, // Corresponds to sourceFileFlags in Go
     _parsing_context: Vec<ParsingContext>,
     // Node creation
-    factory: ast::NodeFactory, // Corresponds to factory in Go
+    _factory: ast::NodeFactory, // Corresponds to factory in Go (unused in Rust)
 }
 
 impl Parser {
@@ -72,7 +72,8 @@ impl Parser {
     }
 
     /// Helper method to track a node's range from start_pos to current position
-    fn finish_node(&self, start_pos: usize) -> (usize, usize) {
+    /// Corresponds to similar functionality in Go but unused in Rust implementation
+    fn _finish_node(&self, start_pos: usize) -> (usize, usize) {
         (start_pos, self.scanner.pos())
     }
 
@@ -89,7 +90,7 @@ impl Parser {
             language_variant: 0,  // Standard language variant
             _source_file_flags: 0,
             _parsing_context: Vec::new(),
-            factory: ast::NodeFactory::new(), // Initialize factory
+            _factory: ast::NodeFactory::new(), // Initialize factory
         };
 
         parser.initialize_state(file_name, source_text);
@@ -549,11 +550,9 @@ impl Parser {
         // Parse return type (if any)
         let return_type = if self.token == Kind::ColonToken {
             self.next_token();
-            println!("Parsing return type, token: {:?}", self.token); // DEBUG: not in Go
 
             // Use the new parse_type function
             let type_node = self.parse_type()?;
-            println!("Return type parsed, token now: {:?}", self.token); // DEBUG: not in Go
             Some(type_node)
         } else {
             None
@@ -590,8 +589,6 @@ impl Parser {
     /// Parse a function expression (anonymous function)
     /// Similar to parse_function_declaration but returns a FunctionExpression
     fn parse_function_expression(&mut self) -> Result<Rc<dyn ast::Node>> {
-        println!("Parsing function expression, token: {:?}", self.token); // DEBUG
-
         // Expect 'function' keyword
         if self.token != Kind::FunctionKeyword {
             return Err(Diagnostic::new(
@@ -605,12 +602,10 @@ impl Parser {
             ));
         }
         self.next_token();
-        println!("After function keyword, token: {:?}", self.token); // DEBUG
 
         // Parse optional function name (for named function expressions)
         let name = if self.token == Kind::Identifier {
             let name_text = self.scanner.token_text().to_owned();
-            println!("Function name: {}", name_text); // DEBUG
             let identifier = Rc::new(ast::Identifier {
                 base: ast::NodeBase::new(Kind::Identifier),
                 text: name_text,
@@ -622,14 +617,11 @@ impl Parser {
         };
 
         // Parse parameter list
-        println!("Before parameter list, token: {:?}", self.token); // DEBUG
         let (parameters, _) = self.parse_parameter_list()?;
-        println!("After parameter list, token: {:?}", self.token); // DEBUG
 
         // Parse return type (if any)
         let return_type = if self.token == Kind::ColonToken {
             self.next_token();
-            println!("After return type colon, token: {:?}", self.token); // DEBUG
 
             // Use the new parse_type function
             let type_node = self.parse_type()?;
@@ -639,13 +631,11 @@ impl Parser {
         };
 
         // Parse function body
-        println!("Before function body, token: {:?}", self.token); // DEBUG
         let body = if self.token == Kind::OpenBraceToken {
             Some(self.parse_block()?)
         } else {
             None
         };
-        println!("After function body, token: {:?}", self.token); // DEBUG
 
         // Create function expression
         let func_expr = Rc::new(ast::FunctionExpression {
@@ -656,7 +646,6 @@ impl Parser {
             body,
         });
 
-        println!("Function expression complete, token: {:?}", self.token); // DEBUG
         Ok(func_expr as Rc<dyn ast::Node>)
     }
 
@@ -681,23 +670,18 @@ impl Parser {
         let has_rest_parameter = false;
 
         // Parse parameters
-        println!("Parsing parameters, current token: {:?}", self.token); // DEBUG: not in Go
         while self.token != Kind::CloseParenToken && self.token != Kind::EndOfFile {
             let parameter = self.parse_parameter()?;
             parameters.push(parameter);
 
-            println!("  After parameter parse, current token: {:?}", self.token); // DEBUG: not in Go
             if self.token == Kind::CommaToken {
                 self.next_token();
-                println!("  Found comma, next token: {:?}", self.token); // DEBUG: not in Go
             } else {
-                println!("  No comma found, breaking parameter list"); // DEBUG: not in Go
                 break;
             }
         }
 
         // Expect ')'
-        println!("After param list, token: {:?}", self.token); // DEBUG: not in Go
         if self.token != Kind::CloseParenToken {
             return Err(Diagnostic::new(
                 DiagnosticCode::SyntaxError,
@@ -710,7 +694,6 @@ impl Parser {
             ));
         }
         self.next_token();
-        println!("After ')', token: {:?}", self.token); // DEBUG: not in Go
 
         Ok((parameters, has_rest_parameter))
     }
@@ -718,8 +701,6 @@ impl Parser {
     /// Parse a parameter
     /// Corresponds to parseParameter in Go
     fn parse_parameter(&mut self) -> Result<Rc<ast::ParameterDeclaration>> {
-        println!("  Parsing parameter, token: {:?}", self.token); // DEBUG: not in Go
-
         // Parse parameter name
         if self.token != Kind::Identifier {
             return Err(Diagnostic::new(
@@ -734,19 +715,16 @@ impl Parser {
         }
 
         let name_text = self.scanner.token_text().to_owned();
-        println!("  Parameter name: {}", name_text); // DEBUG: not in Go
 
         let identifier = Rc::new(ast::Identifier {
             base: ast::NodeBase::new(Kind::Identifier),
             text: name_text,
         });
         self.next_token();
-        println!("  After identifier, token: {:?}", self.token); // DEBUG: not in Go
 
         // Parse type annotation (if any)
         let type_annotation = if self.token == Kind::ColonToken {
             self.next_token();
-            println!("  Found colon, parsing type, token: {:?}", self.token); // DEBUG: not in Go
 
             // Parse the type
             let type_node = self.parse_type()?;
@@ -769,8 +747,6 @@ impl Parser {
     /// Corresponds to parts of parseTypeReference and parseType in internal/parser/parser.go
     /// Extended to handle object type literals which is implemented differently in the Go version
     fn parse_type(&mut self) -> Result<Rc<dyn ast::Node>> {
-        println!("  Parsing type, token: {:?}", self.token); // DEBUG
-
         // Handle primitive types and type references
         if self.token == Kind::StringKeyword
             || self.token == Kind::NumberKeyword
@@ -813,12 +789,10 @@ impl Parser {
                 is_array_type,
             });
 
-            println!("  Basic type parsed, token now: {:?}", self.token); // DEBUG
             Ok(type_reference as Rc<dyn ast::Node>)
         }
         // Handle object type literals: { name: string; age: number }
         else if self.token == Kind::OpenBraceToken {
-            println!("  Parsing object type literal"); // DEBUG
             self.parse_type_literal()
         } else {
             return Err(Diagnostic::new(
@@ -1104,15 +1078,33 @@ impl Parser {
                     }
 
                     let property_text = self.scanner.token_text().to_owned();
+                    let property_len = property_text.len();
+
+                    // Save token positions before consuming the token
+                    let property_name_pos = self.scanner.token_pos();
+
+                    self.next_token();
+                    let property_end = self.scanner.pos();
+
+                    // Calculate total span - from start of expression to end of property
+                    let start_pos = expression.pos();
+                    let end_pos = property_end;
+
+                    // Create property access expression with proper position
+                    let mut base = ast::NodeBase::new(Kind::PropertyAccessExpression);
+                    base.set_pos(start_pos, end_pos);
+
+                    // Set position for property name
+                    let mut name_base = ast::NodeBase::new(Kind::Identifier);
+                    name_base.set_pos(property_name_pos, property_name_pos + property_len);
+
                     let property_name = Rc::new(ast::Identifier {
-                        base: ast::NodeBase::new(Kind::Identifier),
+                        base: name_base,
                         text: property_text,
                     });
-                    self.next_token();
 
-                    // Create property access expression
                     expression = Rc::new(ast::PropertyAccessExpression {
-                        base: ast::NodeBase::new(Kind::PropertyAccessExpression),
+                        base,
                         expression,
                         name: property_name,
                     }) as Rc<dyn ast::Node>;
@@ -1460,17 +1452,13 @@ impl Parser {
     /// Corresponds to parsePropertyAssignment in internal/parser/parser.go
     /// Extended with spread operator (...) support which is handled differently in Go
     fn parse_property_assignment(&mut self) -> Result<Rc<dyn ast::Node>> {
-        println!("Parsing property assignment, token: {:?}", self.token); // DEBUG
-
         // Check for spread operator (...)
         // Note: The Go implementation handles this through a separate parseSpreadAssignment function
         if self.token == Kind::DotDotDotToken {
-            println!("Found spread operator"); // DEBUG
             self.next_token();
 
             // Parse the expression after the spread operator
             let expression = self.parse_expression()?;
-            println!("After spread expression, token: {:?}", self.token); // DEBUG
 
             // Create spread assignment with position tracking
             let spread_assignment = Rc::new(ast::SpreadAssignment {
@@ -1478,14 +1466,12 @@ impl Parser {
                 expression,
             });
 
-            println!("Spread assignment complete, token: {:?}", self.token); // DEBUG
             return Ok(spread_assignment as Rc<dyn ast::Node>);
         }
 
         // Parse property name
         let name = if self.token == Kind::Identifier {
             let name_text = self.scanner.token_text().to_owned();
-            println!("Property name: {}", name_text); // DEBUG
             let identifier = Rc::new(ast::Identifier {
                 base: self.create_node_base(Kind::Identifier),
                 text: name_text,
@@ -1514,7 +1500,6 @@ impl Parser {
         };
 
         // Expect ':'
-        println!("After property name, token: {:?}", self.token); // DEBUG
         if self.token != Kind::ColonToken {
             return Err(Diagnostic::new(
                 DiagnosticCode::SyntaxError,
@@ -1527,11 +1512,9 @@ impl Parser {
             ));
         }
         self.next_token();
-        println!("After colon, token: {:?}", self.token); // DEBUG
 
         // Parse property value
         let initializer = self.parse_expression()?;
-        println!("After expression parse, token: {:?}", self.token); // DEBUG
 
         // Create property assignment with position tracking
         let property_assignment = Rc::new(ast::PropertyAssignment {
@@ -1540,7 +1523,6 @@ impl Parser {
             initializer,
         });
 
-        println!("Property assignment complete, token: {:?}", self.token); // DEBUG
         Ok(property_assignment as Rc<dyn ast::Node>)
     }
 }
@@ -1554,8 +1536,8 @@ pub fn parse_source_file(file_name: &str, source_text: &str) -> Result<Rc<ast::S
 }
 
 /// Create a Parser and parse a TypeScript file with specific language settings
-/// Corresponds to ParseFile in Go
-pub fn parse_file(
+/// Corresponds to ParseFile in Go (unused in Rust)
+pub fn _parse_file(
     file_name: &str,
     source_text: &str,
     language_version: u8,

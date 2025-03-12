@@ -32,3 +32,5 @@ tests for them as well. You can run these tests with
 `cargo run --bin test-harness`.
 
 There are unit tests in the code base as well, use `cargo test` to run them.
+
+NEVER hard code test-specific behavior in the compiler to make tests pass.

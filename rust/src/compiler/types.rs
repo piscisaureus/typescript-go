@@ -6,14 +6,15 @@ use std::collections::HashMap;
 /// Corresponds to the Type struct in Go
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
-    Any,                                    // Any type (corresponds to 'any' in TypeScript)
-    Error,                                  // Error type (used internally for type checking errors)
-    String,                                 // String type
-    Number,                                 // Number type
-    Boolean,                                // Boolean type
-    Void,                                   // Void type
-    Undefined,                              // Undefined type
-    Null,                                   // Null type
+    Any,     // Any type (corresponds to 'any' in TypeScript)
+    Error,   // Error type (used internally for type checking errors)
+    String,  // String type
+    Number,  // Number type
+    Boolean, // Boolean type
+    // The following types are in the Go implementation but not used in Rust
+    _Void,                                  // Void type
+    _Undefined,                             // Undefined type
+    _Null,                                  // Null type
     Function(Box<FunctionSignature>),       // Function type with signature
     Array(Box<Type>),                       // Array type with element type
     Object(Option<Vec<(String, Type)>>),    // Object type with optional properties
@@ -107,8 +108,8 @@ impl TypeContext {
         self.interfaces.insert(name, properties);
     }
 
-    /// Get an interface definition by name
-    pub fn get_interface(&self, name: &str) -> Option<Vec<(String, Type)>> {
+    /// Get an interface definition by name - corresponds to Go implementation but not used in Rust
+    pub fn _get_interface(&self, name: &str) -> Option<Vec<(String, Type)>> {
         self.interfaces.get(name).cloned()
     }
 
