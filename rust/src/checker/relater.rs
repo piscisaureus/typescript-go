@@ -2,7 +2,6 @@
 // This module handles type relationship checking (assignability, etc.)
 
 use crate::checker::types::*;
-use std::rc::Rc;
 
 /// Checks if source_type is assignable to target_type
 /// Corresponds to isAssignableTo in internal/checker/relater.go

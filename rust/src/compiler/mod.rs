@@ -1411,13 +1411,13 @@ pub enum RelationKind {
 /// Relater handles type relation checking
 /// This is a simplified version of the Relater struct in Go
 pub struct Relater<'a> {
-    checker: &'a TypeChecker,
+    _checker: &'a TypeChecker,
 }
 
 impl<'a> Relater<'a> {
     /// Create a new Relater
     fn new(checker: &'a TypeChecker) -> Self {
-        Self { checker }
+        Self { _checker: checker }
     }
 
     /// Check if source is related to target according to the relation kind
@@ -1456,7 +1456,7 @@ impl<'a> Relater<'a> {
             }
 
             // Object to interface relation
-            (Type::Object(src_props), Type::Interface(_, tgt_props)) => {
+            (Type::Object(_src_props), Type::Interface(_, _tgt_props)) => {
                 self.properties_related_to(source, target)
             }
 

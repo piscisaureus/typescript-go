@@ -2,7 +2,6 @@
 // This module defines the types and type context for the type checker
 
 use std::collections::HashMap;
-use std::rc::Rc;
 
 // Type represents a TypeScript type
 // Corresponds to types.Type in internal/checker/types.go
