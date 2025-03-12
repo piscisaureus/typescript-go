@@ -29,6 +29,7 @@ pub enum Kind {
     OpenBracketToken,  // [
     CloseBracketToken, // ]
     DotToken,          // .
+    DotDotDotToken,    // ...
     SemicolonToken,    // ;
     CommaToken,        // ,
     LessThanToken,     // <
@@ -60,6 +61,7 @@ pub enum Kind {
     // Nodes
     SourceFile,
     FunctionDeclaration,
+    FunctionExpression,
     Parameter,
     Block,
     ReturnStatement,
@@ -69,10 +71,14 @@ pub enum Kind {
     ArrayLiteralExpression,
     PropertyAccessExpression,
     ObjectLiteralExpression,
+    PropertyAssignment,
+    SpreadAssignment,
     VariableDeclaration,
     VariableDeclarationList,
     VariableStatement,
     TypeReference,
+    TypeLiteral,
+    PropertySignature,
 }
 
 impl fmt::Display for Kind {

@@ -112,6 +112,9 @@ impl Parser {
             Kind::ReturnKeyword => self
                 .parse_return_statement()
                 .map(|r| Some(r as Rc<dyn ast::Node>)),
+            Kind::VarKeyword | Kind::LetKeyword | Kind::ConstKeyword => self
+                .parse_variable_statement(self.token)
+                .map(|v| Some(v as Rc<dyn ast::Node>)),
             Kind::SemicolonToken => {
                 // Skip empty statements
                 self.next_token();
@@ -123,6 +126,177 @@ impl Parser {
                     .map(|e| Some(e as Rc<dyn ast::Node>))
             }
         }
+    }
+
+    /// Parse a variable statement (var, let, const)
+    /// Corresponds to parseVariableStatement in Go
+    fn parse_variable_statement(
+        &mut self,
+        declaration_kind: Kind,
+    ) -> Result<Rc<ast::VariableStatement>> {
+        // Save the declaration kind (var, let, const)
+        if declaration_kind != Kind::VarKeyword
+            && declaration_kind != Kind::LetKeyword
+            && declaration_kind != Kind::ConstKeyword
+        {
+            return Err(Diagnostic::new(
+                DiagnosticCode::SyntaxError,
+                "Expected 'var', 'let', or 'const'",
+                &self.file_name,
+                0, // TODO: Get actual position
+                0, // TODO: Get actual length
+                0, // TODO: Get actual line
+                0, // TODO: Get actual column
+            ));
+        }
+
+        // Consume the var/let/const keyword
+        self.next_token();
+
+        // Parse the variable declaration list
+        let declaration_list = self.parse_variable_declaration_list()?;
+
+        // Expect ';'
+        if self.token == Kind::SemicolonToken {
+            self.next_token();
+        }
+
+        // Create the variable statement
+        let var_stmt = Rc::new(ast::VariableStatement {
+            base: ast::NodeBase::new(Kind::VariableStatement),
+            declaration_list,
+            declaration_kind,
+        });
+
+        Ok(var_stmt)
+    }
+
+    /// Parse a variable declaration list
+    /// Corresponds to parseVariableDeclarationList in Go
+    fn parse_variable_declaration_list(&mut self) -> Result<Rc<ast::VariableDeclarationList>> {
+        let mut declarations = Vec::new();
+
+        // Parse the first declaration (required)
+        let decl = self.parse_variable_declaration()?;
+        declarations.push(decl);
+
+        // Parse additional declarations separated by commas
+        while self.token == Kind::CommaToken {
+            self.next_token(); // Consume the comma
+            let decl = self.parse_variable_declaration()?;
+            declarations.push(decl);
+        }
+
+        // Create the declaration list
+        let decl_list = Rc::new(ast::VariableDeclarationList {
+            base: ast::NodeBase::new(Kind::VariableDeclarationList),
+            declarations,
+        });
+
+        Ok(decl_list)
+    }
+
+    /// Parse a single variable declaration
+    /// Corresponds to parseVariableDeclaration in Go
+    fn parse_variable_declaration(&mut self) -> Result<Rc<ast::VariableDeclaration>> {
+        // Parse the variable name
+        if self.token != Kind::Identifier {
+            return Err(Diagnostic::new(
+                DiagnosticCode::SyntaxError,
+                "Expected variable name",
+                &self.file_name,
+                0, // TODO: Get actual position
+                0, // TODO: Get actual length
+                0, // TODO: Get actual line
+                0, // TODO: Get actual column
+            ));
+        }
+
+        let name_text = self.scanner.token_text().to_owned();
+        let name = Rc::new(ast::Identifier {
+            base: ast::NodeBase::new(Kind::Identifier),
+            text: name_text,
+        });
+        self.next_token();
+
+        // Parse optional type annotation
+        let mut type_annotation = None;
+        if self.token == Kind::ColonToken {
+            self.next_token(); // Consume the colon
+
+            // Parse the type annotation
+            if self.token == Kind::StringKeyword
+                || self.token == Kind::NumberKeyword
+                || self.token == Kind::Identifier
+            {
+                let type_text = self.scanner.token_text().to_owned();
+                let type_ident = Rc::new(ast::Identifier {
+                    base: ast::NodeBase::new(Kind::Identifier),
+                    text: type_text,
+                });
+                self.next_token();
+
+                // Check for array type (e.g., string[])
+                let is_array_type = if self.token == Kind::OpenBracketToken {
+                    self.next_token(); // Consume '['
+
+                    if self.token != Kind::CloseBracketToken {
+                        return Err(Diagnostic::new(
+                            DiagnosticCode::SyntaxError,
+                            "Expected ']'",
+                            &self.file_name,
+                            0, // TODO: Get actual position
+                            0, // TODO: Get actual length
+                            0, // TODO: Get actual line
+                            0, // TODO: Get actual column
+                        ));
+                    }
+
+                    self.next_token(); // Consume ']'
+                    true
+                } else {
+                    false
+                };
+
+                let type_ref = Rc::new(ast::TypeReference {
+                    base: ast::NodeBase::new(Kind::TypeReference),
+                    type_name: type_ident,
+                    is_array_type,
+                });
+
+                type_annotation = Some(type_ref as Rc<dyn ast::Node>);
+            } else {
+                return Err(Diagnostic::new(
+                    DiagnosticCode::SyntaxError,
+                    "Expected type annotation after colon",
+                    &self.file_name,
+                    0, // TODO: Get actual position
+                    0, // TODO: Get actual length
+                    0, // TODO: Get actual line
+                    0, // TODO: Get actual column
+                ));
+            }
+        }
+
+        // Parse optional initializer
+        let mut initializer = None;
+        if self.token == Kind::EqualsToken {
+            self.next_token(); // Consume the equals
+
+            // Parse the initializer expression
+            let init_expr = self.parse_expression()?;
+            initializer = Some(init_expr);
+        }
+
+        // Create the variable declaration
+        let var_decl = Rc::new(ast::VariableDeclaration {
+            base: ast::NodeBase::new(Kind::VariableDeclaration),
+            name,
+            initializer,
+            type_annotation,
+        });
+
+        Ok(var_decl)
     }
 
     /// Parse a function declaration
@@ -163,61 +337,10 @@ impl Parser {
             self.next_token();
             println!("Parsing return type, token: {:?}", self.token); // DEBUG: not in Go
 
-            if self.token == Kind::StringKeyword
-                || self.token == Kind::NumberKeyword
-                || self.token == Kind::Identifier
-            {
-                let type_text = self.scanner.token_text().to_owned();
-                let type_identifier = Rc::new(ast::Identifier {
-                    base: ast::NodeBase::new(Kind::Identifier),
-                    text: type_text,
-                });
-
-                self.next_token();
-
-                // Check if this is an array type (has [] at the end)
-                let is_array_type = if self.token == Kind::OpenBracketToken {
-                    self.next_token(); // consume '['
-
-                    // Check for and consume ']'
-                    if self.token != Kind::CloseBracketToken {
-                        return Err(Diagnostic::new(
-                            DiagnosticCode::SyntaxError,
-                            "Expected ']' after '['",
-                            &self.file_name,
-                            0, // TODO: Get actual position
-                            0, // TODO: Get actual length
-                            0, // TODO: Get actual line
-                            0, // TODO: Get actual column
-                        ));
-                    }
-
-                    self.next_token(); // consume ']'
-                    true
-                } else {
-                    false
-                };
-
-                let type_reference = Rc::new(ast::TypeReference {
-                    base: ast::NodeBase::new(Kind::TypeReference),
-                    type_name: type_identifier,
-                    is_array_type,
-                });
-
-                println!("Return type parsed, token now: {:?}", self.token); // DEBUG: not in Go
-                Some(type_reference as Rc<dyn ast::Node>)
-            } else {
-                // Return an error if a colon is present but no valid type follows
-                return Err(Diagnostic::new(
-                    DiagnosticCode::SyntaxError,
-                    "Expected type annotation after colon",
-                    &self.file_name,
-                    0, // TODO: Get actual position
-                    0, // TODO: Get actual length
-                    0, // TODO: Get actual line
-                    0, // TODO: Get actual column
-                ));
-            }
+            // Use the new parse_type function
+            let type_node = self.parse_type()?;
+            println!("Return type parsed, token now: {:?}", self.token); // DEBUG: not in Go
+            Some(type_node)
         } else {
             None
         };
@@ -239,6 +362,79 @@ impl Parser {
         });
 
         Ok(func_decl)
+    }
+
+    /// Parse a function expression (anonymous function)
+    /// Similar to parse_function_declaration but returns a FunctionExpression
+    fn parse_function_expression(&mut self) -> Result<Rc<dyn ast::Node>> {
+        println!("Parsing function expression, token: {:?}", self.token); // DEBUG
+
+        // Expect 'function' keyword
+        if self.token != Kind::FunctionKeyword {
+            return Err(Diagnostic::new(
+                DiagnosticCode::SyntaxError,
+                "Expected 'function' keyword",
+                &self.file_name,
+                0, // TODO: Get actual position
+                0, // TODO: Get actual length
+                0, // TODO: Get actual line
+                0, // TODO: Get actual column
+            ));
+        }
+        self.next_token();
+        println!("After function keyword, token: {:?}", self.token); // DEBUG
+
+        // Parse optional function name (for named function expressions)
+        let name = if self.token == Kind::Identifier {
+            let name_text = self.scanner.token_text().to_owned();
+            println!("Function name: {}", name_text); // DEBUG
+            let identifier = Rc::new(ast::Identifier {
+                base: ast::NodeBase::new(Kind::Identifier),
+                text: name_text,
+            });
+            self.next_token();
+            Some(identifier)
+        } else {
+            None
+        };
+
+        // Parse parameter list
+        println!("Before parameter list, token: {:?}", self.token); // DEBUG
+        let (parameters, _) = self.parse_parameter_list()?;
+        println!("After parameter list, token: {:?}", self.token); // DEBUG
+
+        // Parse return type (if any)
+        let return_type = if self.token == Kind::ColonToken {
+            self.next_token();
+            println!("After return type colon, token: {:?}", self.token); // DEBUG
+
+            // Use the new parse_type function
+            let type_node = self.parse_type()?;
+            Some(type_node)
+        } else {
+            None
+        };
+
+        // Parse function body
+        println!("Before function body, token: {:?}", self.token); // DEBUG
+        let body = if self.token == Kind::OpenBraceToken {
+            Some(self.parse_block()?)
+        } else {
+            None
+        };
+        println!("After function body, token: {:?}", self.token); // DEBUG
+
+        // Create function expression
+        let func_expr = Rc::new(ast::FunctionExpression {
+            base: ast::NodeBase::new(Kind::FunctionExpression),
+            name,
+            parameters,
+            return_type,
+            body,
+        });
+
+        println!("Function expression complete, token: {:?}", self.token); // DEBUG
+        Ok(func_expr as Rc<dyn ast::Node>)
     }
 
     /// Parse a parameter list
@@ -330,60 +526,8 @@ impl Parser {
             println!("  Found colon, parsing type, token: {:?}", self.token); // DEBUG: not in Go
 
             // Parse the type
-            if self.token == Kind::StringKeyword
-                || self.token == Kind::NumberKeyword
-                || self.token == Kind::Identifier
-            {
-                let type_text = self.scanner.token_text().to_owned();
-                let type_identifier = Rc::new(ast::Identifier {
-                    base: ast::NodeBase::new(Kind::Identifier),
-                    text: type_text,
-                });
-
-                self.next_token();
-
-                // Check if this is an array type (has [] at the end)
-                let is_array_type = if self.token == Kind::OpenBracketToken {
-                    self.next_token(); // consume '['
-
-                    // Check for and consume ']'
-                    if self.token != Kind::CloseBracketToken {
-                        return Err(Diagnostic::new(
-                            DiagnosticCode::SyntaxError,
-                            "Expected ']' after '['",
-                            &self.file_name,
-                            0, // TODO: Get actual position
-                            0, // TODO: Get actual length
-                            0, // TODO: Get actual line
-                            0, // TODO: Get actual column
-                        ));
-                    }
-
-                    self.next_token(); // consume ']'
-                    true
-                } else {
-                    false
-                };
-
-                let type_reference = Rc::new(ast::TypeReference {
-                    base: ast::NodeBase::new(Kind::TypeReference),
-                    type_name: type_identifier,
-                    is_array_type,
-                });
-
-                println!("  Type parsed, token now: {:?}", self.token); // DEBUG: not in Go
-                Some(type_reference as Rc<dyn ast::Node>)
-            } else {
-                return Err(Diagnostic::new(
-                    DiagnosticCode::SyntaxError,
-                    "Expected type annotation",
-                    &self.file_name,
-                    0, // TODO: Get actual position
-                    0, // TODO: Get actual length
-                    0, // TODO: Get actual line
-                    0, // TODO: Get actual column
-                ));
-            }
+            let type_node = self.parse_type()?;
+            Some(type_node)
         } else {
             None
         };
@@ -396,6 +540,161 @@ impl Parser {
         });
 
         Ok(param_decl)
+    }
+
+    /// Parse a type annotation
+    /// Can be a simple type (string, number), an array type, or an object type
+    fn parse_type(&mut self) -> Result<Rc<dyn ast::Node>> {
+        println!("  Parsing type, token: {:?}", self.token); // DEBUG
+
+        // Handle primitive types and type references
+        if self.token == Kind::StringKeyword
+            || self.token == Kind::NumberKeyword
+            || self.token == Kind::Identifier
+        {
+            let type_text = self.scanner.token_text().to_owned();
+            let type_identifier = Rc::new(ast::Identifier {
+                base: ast::NodeBase::new(Kind::Identifier),
+                text: type_text,
+            });
+
+            self.next_token();
+
+            // Check if this is an array type (has [] at the end)
+            let is_array_type = if self.token == Kind::OpenBracketToken {
+                self.next_token(); // consume '['
+
+                // Check for and consume ']'
+                if self.token != Kind::CloseBracketToken {
+                    return Err(Diagnostic::new(
+                        DiagnosticCode::SyntaxError,
+                        "Expected ']' after '['",
+                        &self.file_name,
+                        0, // TODO: Get actual position
+                        0, // TODO: Get actual length
+                        0, // TODO: Get actual line
+                        0, // TODO: Get actual column
+                    ));
+                }
+
+                self.next_token(); // consume ']'
+                true
+            } else {
+                false
+            };
+
+            let type_reference = Rc::new(ast::TypeReference {
+                base: ast::NodeBase::new(Kind::TypeReference),
+                type_name: type_identifier,
+                is_array_type,
+            });
+
+            println!("  Basic type parsed, token now: {:?}", self.token); // DEBUG
+            Ok(type_reference as Rc<dyn ast::Node>)
+        }
+        // Handle object type literals: { name: string; age: number }
+        else if self.token == Kind::OpenBraceToken {
+            println!("  Parsing object type literal"); // DEBUG
+            self.next_token(); // consume '{'
+
+            let mut members = Vec::new();
+
+            // Parse object type members
+            while self.token != Kind::CloseBraceToken && self.token != Kind::EndOfFile {
+                // Parse member name
+                if self.token != Kind::Identifier {
+                    return Err(Diagnostic::new(
+                        DiagnosticCode::SyntaxError,
+                        "Expected property name in object type",
+                        &self.file_name,
+                        0, // TODO: Get actual position
+                        0, // TODO: Get actual length
+                        0, // TODO: Get actual line
+                        0, // TODO: Get actual column
+                    ));
+                }
+
+                let member_name = Rc::new(ast::Identifier {
+                    base: ast::NodeBase::new(Kind::Identifier),
+                    text: self.scanner.token_text().to_owned(),
+                });
+                self.next_token();
+
+                // Expect colon
+                if self.token != Kind::ColonToken {
+                    return Err(Diagnostic::new(
+                        DiagnosticCode::SyntaxError,
+                        "Expected ':' after property name in object type",
+                        &self.file_name,
+                        0, // TODO: Get actual position
+                        0, // TODO: Get actual length
+                        0, // TODO: Get actual line
+                        0, // TODO: Get actual column
+                    ));
+                }
+                self.next_token();
+
+                // Parse the member type
+                let member_type = self.parse_type()?;
+
+                // Create property signature
+                let property_signature = Rc::new(ast::PropertySignature {
+                    base: ast::NodeBase::new(Kind::PropertySignature),
+                    name: member_name,
+                    type_annotation: member_type,
+                });
+
+                members.push(property_signature as Rc<dyn ast::Node>);
+
+                // Expect semicolon or comma, or closing brace
+                if self.token == Kind::SemicolonToken || self.token == Kind::CommaToken {
+                    self.next_token();
+                } else if self.token != Kind::CloseBraceToken {
+                    return Err(Diagnostic::new(
+                        DiagnosticCode::SyntaxError,
+                        "Expected ';', ',' or '}' after property signature in object type",
+                        &self.file_name,
+                        0, // TODO: Get actual position
+                        0, // TODO: Get actual length
+                        0, // TODO: Get actual line
+                        0, // TODO: Get actual column
+                    ));
+                }
+            }
+
+            // Expect '}'
+            if self.token != Kind::CloseBraceToken {
+                return Err(Diagnostic::new(
+                    DiagnosticCode::SyntaxError,
+                    "Expected '}' at end of object type",
+                    &self.file_name,
+                    0, // TODO: Get actual position
+                    0, // TODO: Get actual length
+                    0, // TODO: Get actual line
+                    0, // TODO: Get actual column
+                ));
+            }
+            self.next_token();
+
+            // Create type literal
+            let type_literal = Rc::new(ast::TypeLiteral {
+                base: ast::NodeBase::new(Kind::TypeLiteral),
+                members,
+            });
+
+            println!("  Object type literal parsed, token now: {:?}", self.token); // DEBUG
+            Ok(type_literal as Rc<dyn ast::Node>)
+        } else {
+            return Err(Diagnostic::new(
+                DiagnosticCode::SyntaxError,
+                "Expected type annotation",
+                &self.file_name,
+                0, // TODO: Get actual position
+                0, // TODO: Get actual length
+                0, // TODO: Get actual line
+                0, // TODO: Get actual column
+            ));
+        }
     }
 
     /// Parse a block of statements
@@ -565,6 +864,10 @@ impl Parser {
                 self.next_token();
                 identifier as Rc<dyn ast::Node>
             }
+            Kind::FunctionKeyword => {
+                // Parse function expression (anonymous function)
+                self.parse_function_expression()?
+            }
             Kind::StringLiteral => {
                 let text = self.scanner.token_text().to_owned();
                 let string_literal = Rc::new(ast::StringLiteral {
@@ -599,29 +902,8 @@ impl Parser {
                 self.parse_array_literal_expression()?
             }
             Kind::OpenBraceToken => {
-                // For object literals - simplified empty object handling for now
-                self.next_token(); // consume '{'
-
-                // Expect '}'
-                if self.token != Kind::CloseBraceToken {
-                    return Err(Diagnostic::new(
-                        DiagnosticCode::SyntaxError,
-                        "Expected '}' to close object literal",
-                        &self.file_name,
-                        0, // TODO: Get actual position
-                        0, // TODO: Get actual length
-                        0, // TODO: Get actual line
-                        0, // TODO: Get actual column
-                    ));
-                }
-
-                self.next_token(); // consume '}'
-
-                // Create empty object literal node
-                Rc::new(ast::ObjectLiteralExpression {
-                    base: ast::NodeBase::new(Kind::ObjectLiteralExpression),
-                    properties: Vec::new(),
-                }) as Rc<dyn ast::Node>
+                // Parse object literal
+                self.parse_object_literal_expression()?
             }
             _ => {
                 return Err(Diagnostic::new(
@@ -794,6 +1076,147 @@ impl Parser {
         });
 
         Ok(array_expr as Rc<dyn ast::Node>)
+    }
+
+    /// Parse an object literal expression
+    /// Corresponds to parseObjectLiteralExpression in Go
+    fn parse_object_literal_expression(&mut self) -> Result<Rc<dyn ast::Node>> {
+        // Expect '{'
+        if self.token != Kind::OpenBraceToken {
+            return Err(Diagnostic::new(
+                DiagnosticCode::SyntaxError,
+                "Expected '{'",
+                &self.file_name,
+                0, // TODO: Get actual position
+                0, // TODO: Get actual length
+                0, // TODO: Get actual line
+                0, // TODO: Get actual column
+            ));
+        }
+        self.next_token();
+
+        let mut properties = Vec::new();
+
+        // Parse properties
+        while self.token != Kind::CloseBraceToken && self.token != Kind::EndOfFile {
+            // Parse property
+            let property = self.parse_property_assignment()?;
+            properties.push(property);
+
+            if self.token == Kind::CommaToken {
+                self.next_token();
+            } else {
+                break;
+            }
+        }
+
+        // Expect '}'
+        if self.token != Kind::CloseBraceToken {
+            return Err(Diagnostic::new(
+                DiagnosticCode::SyntaxError,
+                "Expected '}'",
+                &self.file_name,
+                0, // TODO: Get actual position
+                0, // TODO: Get actual length
+                0, // TODO: Get actual line
+                0, // TODO: Get actual column
+            ));
+        }
+        self.next_token();
+
+        // Create object literal expression
+        let object_expr = Rc::new(ast::ObjectLiteralExpression {
+            base: ast::NodeBase::new(Kind::ObjectLiteralExpression),
+            properties,
+        });
+
+        Ok(object_expr as Rc<dyn ast::Node>)
+    }
+
+    /// Parse a property assignment in an object literal
+    /// Corresponds to parsePropertyAssignment in Go
+    fn parse_property_assignment(&mut self) -> Result<Rc<dyn ast::Node>> {
+        println!("Parsing property assignment, token: {:?}", self.token); // DEBUG
+
+        // Check for spread operator (...)
+        if self.token == Kind::DotDotDotToken {
+            println!("Found spread operator"); // DEBUG
+            self.next_token();
+
+            // Parse the expression after the spread operator
+            let expression = self.parse_expression()?;
+            println!("After spread expression, token: {:?}", self.token); // DEBUG
+
+            // Create spread assignment
+            let spread_assignment = Rc::new(ast::SpreadAssignment {
+                base: ast::NodeBase::new(Kind::SpreadAssignment),
+                expression,
+            });
+
+            println!("Spread assignment complete, token: {:?}", self.token); // DEBUG
+            return Ok(spread_assignment as Rc<dyn ast::Node>);
+        }
+
+        // Parse property name
+        let name = if self.token == Kind::Identifier {
+            let name_text = self.scanner.token_text().to_owned();
+            println!("Property name: {}", name_text); // DEBUG
+            let identifier = Rc::new(ast::Identifier {
+                base: ast::NodeBase::new(Kind::Identifier),
+                text: name_text,
+            });
+            self.next_token();
+            identifier
+        } else if self.token == Kind::StringLiteral {
+            let name_text = self.scanner.token_text().to_owned();
+            let string_literal = Rc::new(ast::Identifier {
+                // Using Identifier for simplicity
+                base: ast::NodeBase::new(Kind::Identifier),
+                text: name_text,
+            });
+            self.next_token();
+            string_literal
+        } else {
+            return Err(Diagnostic::new(
+                DiagnosticCode::SyntaxError,
+                "Expected property name",
+                &self.file_name,
+                0, // TODO: Get actual position
+                0, // TODO: Get actual length
+                0, // TODO: Get actual line
+                0, // TODO: Get actual column
+            ));
+        };
+
+        // Expect ':'
+        println!("After property name, token: {:?}", self.token); // DEBUG
+        if self.token != Kind::ColonToken {
+            return Err(Diagnostic::new(
+                DiagnosticCode::SyntaxError,
+                "Expected ':' in property assignment",
+                &self.file_name,
+                0, // TODO: Get actual position
+                0, // TODO: Get actual length
+                0, // TODO: Get actual line
+                0, // TODO: Get actual column
+            ));
+        }
+        self.next_token();
+        println!("After colon, token: {:?}", self.token); // DEBUG
+
+        // Parse property value
+        let initializer = self.parse_expression()?;
+        println!("After expression parse, token: {:?}", self.token); // DEBUG
+
+        // Create property assignment
+        let property_assignment = Rc::new(ast::PropertyAssignment {
+            base: ast::NodeBase::new(Kind::PropertyAssignment),
+            name,
+            initializer,
+        });
+
+        println!("Property assignment complete, token: {:?}", self.token); // DEBUG
+        Ok(property_assignment as Rc<dyn ast::Node>)
     }
 }
 

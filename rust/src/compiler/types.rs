@@ -6,16 +6,17 @@ use std::collections::HashMap;
 /// Corresponds to the Type struct in Go
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
-    Any,                              // Any type (corresponds to 'any' in TypeScript)
-    Error,                            // Error type (used internally for type checking errors)
-    String,                           // String type
-    Number,                           // Number type
-    Boolean,                          // Boolean type
-    Void,                             // Void type
-    Undefined,                        // Undefined type
-    Null,                             // Null type
-    Function(Box<FunctionSignature>), // Function type with signature
-    Array(Box<Type>),                 // Array type with element type
+    Any,                                 // Any type (corresponds to 'any' in TypeScript)
+    Error,                               // Error type (used internally for type checking errors)
+    String,                              // String type
+    Number,                              // Number type
+    Boolean,                             // Boolean type
+    Void,                                // Void type
+    Undefined,                           // Undefined type
+    Null,                                // Null type
+    Function(Box<FunctionSignature>),    // Function type with signature
+    Array(Box<Type>),                    // Array type with element type
+    Object(Option<Vec<(String, Type)>>), // Object type with optional properties
 }
 
 /// Represents a function signature with parameters and return type

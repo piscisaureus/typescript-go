@@ -156,11 +156,11 @@ demo("hello", 42);
 
 ## Implementation Progress
 
-Current estimated progress: 50%
+Current estimated progress: 65%
 
-- AST: 50%
-- Scanner: 50%
-- Parser: 50%
+- AST: 70%
+- Scanner: 75%
+- Parser: 75%
 - Type Checker: 60%
 - Code Generation: 0%
 
@@ -168,21 +168,36 @@ Current estimated progress: 50%
 
 The Rust implementation can now:
 
-1. Parse the demo TypeScript program with various types:
+1. Parse TypeScript programs with various types:
    - Basic types: string, number, boolean
    - Array types (e.g., any[])
+   - Object types with properties (including object type literals)
    - Function parameters with type annotations
    - Function return type annotations
+   - Variable declarations (var, let, const)
 
-2. Type check the program:
+2. Parse expressions and statements:
+   - Function declarations and expressions
+   - Object literals with property assignments
+   - Object literals with function expressions
+   - Object spread operators (...obj)
+   - Array literals
+   - Property access expressions (obj.prop)
+   - Function calls
+
+3. Type check the program:
    - Validate function call argument types
    - Type checking for binary expressions
    - Array literal type inference
+   - Object literal handling with property assignments
+   - Function expression type handling
    - Boolean literal support
    - Type compatibility rules (assignability)
    - Error reporting for type mismatches
 
-3. Testing:
+4. Testing:
    - Test harness created to compare our results with Deno
    - Support for pass/fail tests
+   - Object literals test suite
+   - Function expressions test cases
    - Comparison of error detection between our compiler and Deno

@@ -10,8 +10,10 @@ language.
 
 Try to follow the structure of to the go code as closely as possible.
 
-Whenever you create Rust files, structures, functions, etc, add comments to them
-that reference the go implementation.
+Whenever you create Rust files, structures, functions, blocks of logic, etc, add
+comments to them that reference the go implementation. Include the path to the
+go source file. Add comments too if you implement control flow that deviates
+from the original go source.
 
 When you add debugging code (eprintln statements etc) that doesn't appear in the
 Go source code, mark them as such, so we can remove them more easily later. Feel

@@ -156,7 +156,20 @@ impl Scanner {
             ')' => self.token = Kind::CloseParenToken,
             '[' => self.token = Kind::OpenBracketToken,
             ']' => self.token = Kind::CloseBracketToken,
-            '.' => self.token = Kind::DotToken,
+            '.' => {
+                // Check for ellipsis/spread operator ('...')
+                if self.char() == '.' {
+                    self.next_char();
+                    if self.char() == '.' {
+                        self.next_char();
+                        self.token = Kind::DotDotDotToken;
+                    } else {
+                        self.token = Kind::DotToken;
+                    }
+                } else {
+                    self.token = Kind::DotToken;
+                }
+            }
             ';' => self.token = Kind::SemicolonToken,
             ',' => self.token = Kind::CommaToken,
             '<' => self.token = Kind::LessThanToken,

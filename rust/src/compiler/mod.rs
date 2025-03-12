@@ -86,6 +86,24 @@ impl TypeChecker {
             return_type: Type::String,
         };
         context.add_function("String".to_string(), string_signature);
+
+        // Add the console object for logging
+        let log_signature = FunctionSignature {
+            parameters: vec![Type::Any], // console.log can take any arguments
+            return_type: Type::Any,
+        };
+
+        // Make console.log function available
+        let console_log_func = Type::Function(Box::new(log_signature));
+
+        // Create console object properties
+        let console_props = vec![("log".to_string(), console_log_func)];
+
+        // Create console object
+        let console_type = Type::Object(Some(console_props));
+
+        // Register console in global scope
+        context.add_variable("console".to_string(), console_type);
     }
 
     /// Check a source file for type errors
@@ -254,6 +272,63 @@ impl TypeChecker {
                     }
                 }
             }
+            ast::Kind::VariableStatement => {
+                // Downcast to VariableStatement
+                if let Some(var_stmt) = statement.as_any().downcast_ref::<ast::VariableStatement>()
+                {
+                    // Check each declaration in the declaration list
+                    if let Some(decl_list) = var_stmt
+                        .declaration_list
+                        .as_any()
+                        .downcast_ref::<ast::VariableDeclarationList>()
+                    {
+                        for decl in &decl_list.declarations {
+                            // Determine variable type from type annotation or initializer
+                            let mut var_type = Type::Any;
+
+                            // Check type annotation if present
+                            if let Some(type_anno) = &decl.type_annotation {
+                                var_type = self.get_type_from_node(type_anno.clone())?;
+                            }
+
+                            // Check initializer if present
+                            if let Some(init) = &decl.initializer {
+                                let init_type = self.check_expression(context, Rc::clone(init))?;
+
+                                // If we have both a type annotation and initializer, verify compatibility
+                                if decl.type_annotation.is_some()
+                                    && !self.is_assignable_to(&init_type, &var_type)
+                                {
+                                    self.diagnostics.push(Diagnostic::simple(
+                                        DiagnosticCode::TypeMismatch,
+                                        format!(
+                                            "Type {:?} is not assignable to type {:?}",
+                                            init_type, var_type
+                                        ),
+                                        init.pos(),
+                                        init.end(),
+                                    ));
+                                    // Keep using the annotated type even if initializer doesn't match
+                                } else if decl.type_annotation.is_none() {
+                                    // Infer type from initializer if no type annotation
+                                    var_type = init_type;
+                                }
+                            } else if var_stmt.declaration_kind == ast::Kind::ConstKeyword {
+                                // Constants must have initializers
+                                self.diagnostics.push(Diagnostic::simple(
+                                    DiagnosticCode::SyntaxError,
+                                    "const declarations must be initialized".to_string(),
+                                    decl.pos(),
+                                    decl.end(),
+                                ));
+                            }
+
+                            // Add variable to context
+                            context.add_variable(decl.name.text.clone(), var_type);
+                        }
+                    }
+                }
+            }
             _ => {
                 // Unhandled statement type - for now, we do nothing
             }
@@ -269,6 +344,43 @@ impl TypeChecker {
         expression: Rc<dyn ast::Node>,
     ) -> Result<Type> {
         match expression.kind() {
+            ast::Kind::FunctionExpression => {
+                // Handle function expressions (e.g., function(n) { return n + 1; })
+                if let Some(func_expr) = expression
+                    .as_any()
+                    .downcast_ref::<ast::FunctionExpression>()
+                {
+                    // Create parameter types - don't try to create a new context
+                    let mut param_types = Vec::new();
+                    for param in &func_expr.parameters {
+                        let param_type = if let Some(type_annotation) = &param.type_annotation {
+                            self.get_type_from_node(type_annotation.clone())?
+                        } else {
+                            Type::Any
+                        };
+                        param_types.push(param_type);
+                    }
+
+                    // Get return type
+                    let return_type = if let Some(return_type) = &func_expr.return_type {
+                        self.get_type_from_node(return_type.clone())?
+                    } else {
+                        Type::Any
+                    };
+
+                    // Create function signature
+                    let signature = FunctionSignature {
+                        parameters: param_types,
+                        return_type,
+                    };
+
+                    // Don't check function body for now, just return function type
+                    return Ok(Type::Function(Box::new(signature)));
+                }
+
+                return Ok(Type::Error);
+            }
+
             ast::Kind::PropertyAccessExpression => {
                 // Handle property access expression (e.g., d.join)
                 if let Some(prop_access) = expression
@@ -291,6 +403,16 @@ impl TypeChecker {
                                 parameters: vec![Type::String],
                                 return_type: Type::String,
                             })));
+                        }
+                    }
+
+                    // Check for object type properties
+                    if let Type::Object(Some(props)) = &obj_type {
+                        // Look for property in props
+                        if let Some((_, prop_type)) =
+                            props.iter().find(|(name, _)| name == prop_name)
+                        {
+                            return Ok(prop_type.clone());
                         }
                     }
 
@@ -538,6 +660,39 @@ impl TypeChecker {
                 // Fallback for any unexpected issues
                 return Ok(Type::Array(Box::new(Type::Any)));
             }
+            ast::Kind::ObjectLiteralExpression => {
+                if let Some(obj_expr) = expression
+                    .as_any()
+                    .downcast_ref::<ast::ObjectLiteralExpression>()
+                {
+                    // Empty object case
+                    if obj_expr.properties.is_empty() {
+                        return Ok(Type::Object(None)); // Empty object
+                    }
+
+                    // Collect property types for non-empty objects
+                    let mut properties = Vec::new();
+
+                    for prop_node in &obj_expr.properties {
+                        if let Some(prop_assignment) =
+                            prop_node.as_any().downcast_ref::<ast::PropertyAssignment>()
+                        {
+                            let name = &prop_assignment.name.text;
+                            let value_type = self.check_expression(
+                                context,
+                                Rc::clone(&prop_assignment.initializer),
+                            )?;
+
+                            properties.push((name.clone(), value_type));
+                        }
+                    }
+
+                    return Ok(Type::Object(Some(properties)));
+                }
+
+                // Fallback for any unexpected issues
+                return Ok(Type::Object(None));
+            }
             _ => {
                 // Unhandled expression type
                 self.diagnostics.push(Diagnostic::simple(
@@ -583,6 +738,31 @@ impl TypeChecker {
                     Ok(Type::Any)
                 }
             }
+            ast::Kind::TypeLiteral => {
+                if let Some(type_lit) = node.as_any().downcast_ref::<ast::TypeLiteral>() {
+                    let mut props = Vec::new();
+
+                    // Convert each property signature to a named type
+                    for member in &type_lit.members {
+                        if let Some(prop_sig) =
+                            member.as_any().downcast_ref::<ast::PropertySignature>()
+                        {
+                            let name = prop_sig.name.text.clone();
+                            let type_annotation =
+                                self.get_type_from_node(Rc::clone(&prop_sig.type_annotation))?;
+                            props.push((name, type_annotation));
+                        }
+                    }
+
+                    if props.is_empty() {
+                        Ok(Type::Object(None))
+                    } else {
+                        Ok(Type::Object(Some(props)))
+                    }
+                } else {
+                    Ok(Type::Any)
+                }
+            }
             _ => Ok(Type::Any), // Unhandled type annotation - default to Any
         }
     }
@@ -604,12 +784,39 @@ impl TypeChecker {
             return true;
         }
 
-        // Handle arrays
+        // Handle arrays and objects
         match (source_type, target_type) {
             (Type::Array(src_elem_type), Type::Array(tgt_elem_type)) => {
                 // Check element type compatibility
                 self.is_assignable_to(src_elem_type, tgt_elem_type)
             }
+
+            // Object to array is not assignable
+            (Type::Object(_), Type::Array(_)) => false,
+
+            // Empty object can be assigned to any object type
+            (Type::Object(None), Type::Object(_)) => true,
+
+            // Object with properties to object with properties
+            (Type::Object(Some(src_props)), Type::Object(Some(tgt_props))) => {
+                // Check if source has all required properties from target with compatible types
+                for (tgt_name, tgt_type) in tgt_props {
+                    let matching_src_prop = src_props.iter().find(|(name, _)| name == tgt_name);
+
+                    match matching_src_prop {
+                        Some((_, src_type)) => {
+                            if !self.is_assignable_to(src_type, tgt_type) {
+                                return false;
+                            }
+                        }
+                        None => return false, // Required property missing
+                    }
+                }
+                true
+            }
+
+            // Object to empty object
+            (Type::Object(_), Type::Object(None)) => true,
 
             // In TypeScript, numbers can be coerced to strings during string concatenation,
             // but a Number type is not assignable to a String parameter

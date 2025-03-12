@@ -118,6 +118,30 @@ impl Node for SourceFile {
     }
 }
 
+impl Node for FunctionExpression {
+    fn kind(&self) -> Kind {
+        self.base.kind()
+    }
+    fn flags(&self) -> NodeFlags {
+        self.base.flags()
+    }
+    fn pos(&self) -> usize {
+        self.base.pos()
+    }
+    fn end(&self) -> usize {
+        self.base.end()
+    }
+    fn loc(&self) -> TextRange {
+        self.base.loc()
+    }
+    fn set_flags(&mut self, flags: NodeFlags) {
+        self.base.set_flags(flags)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
 impl Node for Identifier {
     fn kind(&self) -> Kind {
         self.base.kind()
@@ -473,6 +497,17 @@ pub struct FunctionDeclaration {
     pub return_type: Option<Rc<dyn Node>>,
 }
 
+/// Represents a function expression (anonymous function)
+/// Similar to FunctionDeclaration but used in expression contexts
+#[derive(Debug, Clone)]
+pub struct FunctionExpression {
+    pub base: NodeBase,
+    pub name: Option<Rc<Identifier>>,
+    pub parameters: Vec<Rc<ParameterDeclaration>>,
+    pub body: Option<Rc<Block>>,
+    pub return_type: Option<Rc<dyn Node>>,
+}
+
 /// Represents a parameter declaration
 /// In Go, this is the ParameterDeclaration struct
 #[derive(Debug, Clone)]
@@ -556,6 +591,71 @@ impl Node for TypeReference {
     }
 }
 
+/// Represents a property in a type literal
+/// Like PropertySignature in TypeScript
+#[derive(Debug, Clone)]
+pub struct PropertySignature {
+    pub base: NodeBase,
+    pub name: Rc<Identifier>,
+    pub type_annotation: Rc<dyn Node>,
+}
+
+impl Node for PropertySignature {
+    fn kind(&self) -> Kind {
+        self.base.kind()
+    }
+    fn flags(&self) -> NodeFlags {
+        self.base.flags()
+    }
+    fn pos(&self) -> usize {
+        self.base.pos()
+    }
+    fn end(&self) -> usize {
+        self.base.end()
+    }
+    fn loc(&self) -> TextRange {
+        self.base.loc()
+    }
+    fn set_flags(&mut self, flags: NodeFlags) {
+        self.base.set_flags(flags)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+/// Represents an object type literal (e.g. { prop: Type })
+/// Like TypeLiteralNode in TypeScript
+#[derive(Debug, Clone)]
+pub struct TypeLiteral {
+    pub base: NodeBase,
+    pub members: Vec<Rc<dyn Node>>,
+}
+
+impl Node for TypeLiteral {
+    fn kind(&self) -> Kind {
+        self.base.kind()
+    }
+    fn flags(&self) -> NodeFlags {
+        self.base.flags()
+    }
+    fn pos(&self) -> usize {
+        self.base.pos()
+    }
+    fn end(&self) -> usize {
+        self.base.end()
+    }
+    fn loc(&self) -> TextRange {
+        self.base.loc()
+    }
+    fn set_flags(&mut self, flags: NodeFlags) {
+        self.base.set_flags(flags)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
 /// Represents a property access expression (e.g. obj.prop)
 /// In Go, this is the PropertyAccessExpression struct
 #[derive(Debug, Clone)]
@@ -589,6 +689,71 @@ impl Node for PropertyAccessExpression {
     }
 }
 
+/// Represents a property assignment in an object literal (e.g. prop: value)
+/// In Go, this is the PropertyAssignment struct
+#[derive(Debug, Clone)]
+pub struct PropertyAssignment {
+    pub base: NodeBase,
+    pub name: Rc<Identifier>,
+    pub initializer: Rc<dyn Node>,
+}
+
+impl Node for PropertyAssignment {
+    fn kind(&self) -> Kind {
+        self.base.kind()
+    }
+    fn flags(&self) -> NodeFlags {
+        self.base.flags()
+    }
+    fn pos(&self) -> usize {
+        self.base.pos()
+    }
+    fn end(&self) -> usize {
+        self.base.end()
+    }
+    fn loc(&self) -> TextRange {
+        self.base.loc()
+    }
+    fn set_flags(&mut self, flags: NodeFlags) {
+        self.base.set_flags(flags)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+/// Represents a spread assignment in an object literal (e.g. ...obj)
+/// This enables object spread syntax
+#[derive(Debug, Clone)]
+pub struct SpreadAssignment {
+    pub base: NodeBase,
+    pub expression: Rc<dyn Node>,
+}
+
+impl Node for SpreadAssignment {
+    fn kind(&self) -> Kind {
+        self.base.kind()
+    }
+    fn flags(&self) -> NodeFlags {
+        self.base.flags()
+    }
+    fn pos(&self) -> usize {
+        self.base.pos()
+    }
+    fn end(&self) -> usize {
+        self.base.end()
+    }
+    fn loc(&self) -> TextRange {
+        self.base.loc()
+    }
+    fn set_flags(&mut self, flags: NodeFlags) {
+        self.base.set_flags(flags)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
 /// Represents an object literal expression (e.g. {prop: value})
 /// In Go, this is the ObjectLiteralExpression struct
 #[derive(Debug, Clone)]
@@ -598,6 +763,105 @@ pub struct ObjectLiteralExpression {
 }
 
 impl Node for ObjectLiteralExpression {
+    fn kind(&self) -> Kind {
+        self.base.kind()
+    }
+    fn flags(&self) -> NodeFlags {
+        self.base.flags()
+    }
+    fn pos(&self) -> usize {
+        self.base.pos()
+    }
+    fn end(&self) -> usize {
+        self.base.end()
+    }
+    fn loc(&self) -> TextRange {
+        self.base.loc()
+    }
+    fn set_flags(&mut self, flags: NodeFlags) {
+        self.base.set_flags(flags)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+/// Represents a variable declaration (e.g. 'var x = 5', 'let y = "hello"', 'const z = true')
+/// In Go, this is the VariableDeclaration struct
+#[derive(Debug, Clone)]
+pub struct VariableDeclaration {
+    pub base: NodeBase,
+    pub name: Rc<Identifier>,
+    pub initializer: Option<Rc<dyn Node>>,
+    pub type_annotation: Option<Rc<dyn Node>>,
+}
+
+impl Node for VariableDeclaration {
+    fn kind(&self) -> Kind {
+        self.base.kind()
+    }
+    fn flags(&self) -> NodeFlags {
+        self.base.flags()
+    }
+    fn pos(&self) -> usize {
+        self.base.pos()
+    }
+    fn end(&self) -> usize {
+        self.base.end()
+    }
+    fn loc(&self) -> TextRange {
+        self.base.loc()
+    }
+    fn set_flags(&mut self, flags: NodeFlags) {
+        self.base.set_flags(flags)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+/// Represents a list of variable declarations (e.g. 'var x = 5, y = 10')
+/// In Go, this is the VariableDeclarationList struct
+#[derive(Debug, Clone)]
+pub struct VariableDeclarationList {
+    pub base: NodeBase,
+    pub declarations: Vec<Rc<VariableDeclaration>>,
+}
+
+impl Node for VariableDeclarationList {
+    fn kind(&self) -> Kind {
+        self.base.kind()
+    }
+    fn flags(&self) -> NodeFlags {
+        self.base.flags()
+    }
+    fn pos(&self) -> usize {
+        self.base.pos()
+    }
+    fn end(&self) -> usize {
+        self.base.end()
+    }
+    fn loc(&self) -> TextRange {
+        self.base.loc()
+    }
+    fn set_flags(&mut self, flags: NodeFlags) {
+        self.base.set_flags(flags)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+/// Represents a variable statement (e.g. 'var x = 5;', 'let y = "hello";', 'const z = true;')
+/// In Go, this is the VariableStatement struct
+#[derive(Debug, Clone)]
+pub struct VariableStatement {
+    pub base: NodeBase,
+    pub declaration_list: Rc<VariableDeclarationList>,
+    pub declaration_kind: Kind, // VarKeyword, LetKeyword, or ConstKeyword
+}
+
+impl Node for VariableStatement {
     fn kind(&self) -> Kind {
         self.base.kind()
     }
