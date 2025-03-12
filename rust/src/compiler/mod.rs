@@ -1,11 +1,10 @@
 // Corresponds to internal/compiler/program.go in the Go implementation
 
-mod types;
-pub use types::*;
-
 use crate::ast::{self, Node};
+mod types;
 use crate::error::{Diagnostic, DiagnosticCode, Result};
 use std::rc::Rc;
+pub use types::*;
 
 /// Compiler manages compilation of TypeScript files
 /// This is a simplified version that corresponds to Program in Go
@@ -1382,140 +1381,272 @@ impl TypeChecker {
     }
 
     /// Check if source_type is assignable to target_type
-    /// Corresponds to isAssignableTo in internal/checker/checker.go
-    /// Extended to handle object types, interfaces, and object compatibility
+    /// Corresponds to isTypeAssignableTo in internal/checker/relater.go
     fn is_assignable_to(&self, source_type: &Type, target_type: &Type) -> bool {
-        // Any is assignable to and from anything
-        if *source_type == Type::Any || *target_type == Type::Any {
+        let relater = self.create_relater();
+        relater.is_related_to(source_type, target_type, RelationKind::Assignable)
+    }
+
+    /// Creates a new relater instance for type relationship checking
+    /// Corresponds to the use of Relaters in the Go implementation
+    fn create_relater(&self) -> Relater {
+        Relater::new(self)
+    }
+}
+
+/// RelationKind represents different kinds of type relations
+/// Corresponds to the different relation constants (assignableRelation, etc.) in Go
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum RelationKind {
+    /// Types are assignable to each other
+    Assignable,
+    /// Types are identical
+    Identity,
+    /// One type is a subtype of another
+    Subtype,
+    /// Types are comparable with == or !=
+    Comparable,
+}
+
+/// Relater handles type relation checking
+/// This is a simplified version of the Relater struct in Go
+pub struct Relater<'a> {
+    checker: &'a TypeChecker,
+}
+
+impl<'a> Relater<'a> {
+    /// Create a new Relater
+    fn new(checker: &'a TypeChecker) -> Self {
+        Self { checker }
+    }
+
+    /// Check if source is related to target according to the relation kind
+    /// Simplified version of isRelatedTo in Go
+    pub fn is_related_to(&self, source: &Type, target: &Type, relation: RelationKind) -> bool {
+        // Any is related to anything
+        if *source == Type::Any || *target == Type::Any {
             return true;
         }
 
-        // Error is not assignable to anything
-        if *source_type == Type::Error {
+        // Error is not related to anything except Any
+        if *source == Type::Error {
             return false;
         }
 
-        // Same types are assignable
-        if source_type == target_type {
+        // Identical types are always related
+        if source == target {
             return true;
         }
 
-        // Handle arrays and objects
-        match (source_type, target_type) {
-            // Array type compatibility
-            (Type::Array(src_elem_type), Type::Array(tgt_elem_type)) => {
-                // Check element type compatibility
-                self.is_assignable_to(src_elem_type, tgt_elem_type)
+        // For identity relation, check must be more strict
+        if relation == RelationKind::Identity {
+            return self.is_identical_to(source, target);
+        }
+
+        // Use simple type relation check for primitive types
+        if self.is_simple_type_related_to(source, target, relation) {
+            return true;
+        }
+
+        // Handle structured types (objects, interfaces, arrays)
+        match (source, target) {
+            // Array types
+            (Type::Array(src_elem), Type::Array(tgt_elem)) => {
+                self.is_related_to(src_elem, tgt_elem, relation)
             }
 
-            // Object to array is not assignable
-            (Type::Object(_), Type::Array(_)) => false,
-
-            // Object to interface
-            (Type::Object(src_props), Type::Interface(_, interface_props)) => {
-                match src_props {
-                    // Empty object cannot be assigned to an interface that requires properties
-                    None => interface_props.is_empty(),
-
-                    // Check if the object has all required interface properties
-                    Some(props) => {
-                        for (iface_prop_name, iface_prop_type) in interface_props {
-                            let matching_prop =
-                                props.iter().find(|(name, _)| name == iface_prop_name);
-
-                            match matching_prop {
-                                Some((_, prop_type)) => {
-                                    if !self.is_assignable_to(prop_type, &iface_prop_type) {
-                                        return false; // Property type doesn't match interface requirement
-                                    }
-                                }
-                                None => return false, // Required interface property missing
-                            }
-                        }
-                        true
-                    }
-                }
+            // Object to interface relation
+            (Type::Object(src_props), Type::Interface(_, tgt_props)) => {
+                self.properties_related_to(source, target)
             }
 
-            // Empty object can be assigned to any object type
-            (Type::Object(None), Type::Object(_)) => true,
+            // Object to object relation
+            (Type::Object(_), Type::Object(_)) => self.properties_related_to(source, target),
 
-            // Object with properties to object with properties
-            (Type::Object(Some(src_props)), Type::Object(Some(tgt_props))) => {
-                // Check if source has all required properties from target with compatible types
-                for (tgt_name, tgt_type) in tgt_props {
-                    let matching_src_prop = src_props.iter().find(|(name, _)| name == tgt_name);
-
-                    match matching_src_prop {
-                        Some((_, src_type)) => {
-                            if !self.is_assignable_to(src_type, tgt_type) {
-                                return false; // Property type mismatch
-                            }
-                        }
-                        None => return false, // Required property missing
-                    }
-                }
-                true
+            // Interface to interface relation
+            (Type::Interface(_, _), Type::Interface(_, _)) => {
+                self.properties_related_to(source, target)
             }
 
-            // Object to empty object
-            (Type::Object(_), Type::Object(None)) => true,
+            // Interface to object relation
+            (Type::Interface(_, _), Type::Object(_)) => self.properties_related_to(source, target),
 
-            // Interface to interface
-            (Type::Interface(_, src_props), Type::Interface(_, tgt_props)) => {
-                // Check if source interface has all properties of target interface
-                for (tgt_name, tgt_type) in tgt_props {
-                    let matching_src_prop = src_props.iter().find(|(name, _)| name == tgt_name);
-
-                    match matching_src_prop {
-                        Some((_, src_type)) => {
-                            if !self.is_assignable_to(src_type, tgt_type) {
-                                return false;
-                            }
-                        }
-                        None => return false, // Target interface requires a property not in source
-                    }
-                }
-                true
+            // Function types
+            (Type::Function(src_sig), Type::Function(tgt_sig)) => {
+                self.signatures_related_to(src_sig, tgt_sig)
             }
 
-            // Interface to object
-            (Type::Interface(_, interface_props), Type::Object(obj_props)) => {
-                match obj_props {
-                    // Interface to empty object - only valid if interface has no required props
-                    None => interface_props.is_empty(),
+            // Default: not related
+            _ => false,
+        }
+    }
 
-                    // Interface to object with properties
-                    Some(props) => {
-                        // Check if interface satisfies all required object properties
-                        for (obj_prop_name, obj_prop_type) in props {
-                            let matching_prop = interface_props
-                                .iter()
-                                .find(|(name, _)| name == obj_prop_name);
+    /// Check if two types are identical
+    /// Simplified version of isTypeIdenticalTo in Go
+    fn is_identical_to(&self, source: &Type, target: &Type) -> bool {
+        match (source, target) {
+            // Array types are identical if their element types are identical
+            (Type::Array(src_elem), Type::Array(tgt_elem)) => {
+                self.is_identical_to(src_elem, tgt_elem)
+            }
 
-                            match matching_prop {
-                                Some((_, prop_type)) => {
-                                    if !self.is_assignable_to(prop_type, &obj_prop_type) {
+            // Object types are identical if they have the same properties with identical types
+            (Type::Object(src_props), Type::Object(tgt_props)) => {
+                match (src_props, tgt_props) {
+                    (None, None) => true,
+                    (Some(src), Some(tgt)) if src.len() == tgt.len() => {
+                        // For identity, all properties must exactly match in both directions
+                        for (src_name, src_type) in src {
+                            match tgt.iter().find(|(name, _)| name == src_name) {
+                                Some((_, tgt_type)) => {
+                                    if !self.is_identical_to(src_type, tgt_type) {
                                         return false;
                                     }
                                 }
-                                None => return false, // Interface doesn't have required property
+                                None => return false,
                             }
                         }
                         true
                     }
+                    _ => false,
                 }
             }
 
-            // In TypeScript, numbers can be coerced to strings during string concatenation,
-            // but a Number type is not assignable to a String parameter
-            (Type::Number, Type::String) => false,
+            // Interface types are identical if they have the same name and identical properties
+            (Type::Interface(src_name, src_props), Type::Interface(tgt_name, tgt_props)) => {
+                src_name == tgt_name
+                    && src_props.len() == tgt_props.len()
+                    && src_props.iter().all(|(src_name, src_type)| {
+                        tgt_props.iter().any(|(tgt_name, tgt_type)| {
+                            src_name == tgt_name && self.is_identical_to(src_type, tgt_type)
+                        })
+                    })
+            }
 
-            // Similarly, booleans are not assignable to strings in TypeScript
-            (Type::Boolean, Type::String) => false,
+            // Function types are identical if their signatures are identical
+            (Type::Function(src_sig), Type::Function(tgt_sig)) => {
+                src_sig.parameters.len() == tgt_sig.parameters.len()
+                    && self.is_identical_to(&src_sig.return_type, &tgt_sig.return_type)
+                    && src_sig
+                        .parameters
+                        .iter()
+                        .zip(tgt_sig.parameters.iter())
+                        .all(|(src_param, tgt_param)| self.is_identical_to(src_param, tgt_param))
+            }
 
-            // By default, different types are not assignable
+            // Default comparison: types are identical if they're the same variant
+            _ => std::mem::discriminant(source) == std::mem::discriminant(target),
+        }
+    }
+
+    /// Check if source type is related to target type for simple type cases
+    /// Simplified version of isSimpleTypeRelatedTo in Go
+    fn is_simple_type_related_to(
+        &self,
+        source: &Type,
+        target: &Type,
+        relation: RelationKind,
+    ) -> bool {
+        match (source, target) {
+            // String-like types are related to string
+            (_, Type::String) => {
+                matches!(source, Type::String)
+            }
+
+            // Number-like types are related to number
+            (_, Type::Number) => {
+                matches!(source, Type::Number)
+            }
+
+            // Boolean-like types are related to boolean
+            (_, Type::Boolean) => {
+                matches!(source, Type::Boolean)
+            }
+
+            // For assignable relation, Any is assignable to anything
+            (Type::Any, _) if relation == RelationKind::Assignable => true,
+
+            // Default: not a simple relation
             _ => false,
         }
+    }
+
+    /// Check if source's properties are related to target's properties
+    /// Simplified version of propertiesRelatedTo in Go
+    fn properties_related_to(&self, source: &Type, target: &Type) -> bool {
+        // Extract properties from source type
+        let source_props = match source {
+            Type::Object(Some(props)) => props,
+            Type::Object(None) => return true, // Empty object is assignable to any object or interface
+            Type::Interface(_, props) => props,
+            _ => return false,
+        };
+
+        // Extract properties from target type
+        let target_props = match target {
+            Type::Object(Some(props)) => props,
+            Type::Object(None) => return true, // Anything is assignable to empty object
+            Type::Interface(_, props) => props,
+            _ => return false,
+        };
+
+        // Check that all target properties exist in source with compatible types
+        for (target_prop_name, target_prop_type) in target_props {
+            match source_props
+                .iter()
+                .find(|(name, _)| name == target_prop_name)
+            {
+                Some((_, source_prop_type)) => {
+                    // Property exists, check type compatibility
+                    if !self.is_related_to(
+                        source_prop_type,
+                        target_prop_type,
+                        RelationKind::Assignable,
+                    ) {
+                        return false;
+                    }
+                }
+                None => {
+                    // Required property missing in source
+                    return false;
+                }
+            }
+        }
+
+        // All required properties exist with compatible types
+        true
+    }
+
+    /// Check if source signature is related to target signature
+    /// Simplified version of signatureRelatedTo in Go
+    fn signatures_related_to(
+        &self,
+        source: &FunctionSignature,
+        target: &FunctionSignature,
+    ) -> bool {
+        // Check return type - return type is covariant
+        if !self.is_related_to(
+            &source.return_type,
+            &target.return_type,
+            RelationKind::Assignable,
+        ) {
+            return false;
+        }
+
+        // Check parameters - parameters are contravariant
+        // Parameter count must match
+        if source.parameters.len() != target.parameters.len() {
+            return false;
+        }
+
+        // Each parameter type must be compatible in reverse direction (contravariant)
+        for (i, target_param) in target.parameters.iter().enumerate() {
+            let source_param = &source.parameters[i];
+            if !self.is_related_to(target_param, source_param, RelationKind::Assignable) {
+                return false;
+            }
+        }
+
+        true
     }
 }

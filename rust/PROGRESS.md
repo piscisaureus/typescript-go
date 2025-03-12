@@ -73,23 +73,29 @@ demo("hello", 42);
 ### Type System
 
 - Corresponds to `internal/checker/types.go` in Go
-- **Status**: Basic implementation
+- **Status**: Intermediate implementation
 - **Details**:
   - Created basic type enum (String, Number, Boolean, etc.)
   - Implemented function signature handling
   - Built scoping system for tracking variables and functions
   - Added type compatibility checking for assignments/expressions
+  - Implemented structured type relationship checks (assignability, identity)
 
 ### Type Checker
 
-- Corresponds to `internal/checker/checker.go` in Go
-- **Status**: Basic implementation
+- Corresponds to `internal/checker/checker.go` and `internal/checker/relater.go`
+  in Go
+- **Status**: Advanced implementation
 - **Details**:
   - Type checking for function calls
   - Type checking for binary expressions (e.g., string + number)
   - Type checking for return statements
   - Type verification for function parameters and return types
   - Error reporting for type mismatches
+  - Added `Relater` struct for handling type relationships similar to Go
+    implementation
+  - Relationship checking for objects, interfaces, and arrays
+  - Property compatibility checking for object and interface types
 
 ### Error Handling
 
@@ -156,12 +162,12 @@ demo("hello", 42);
 
 ## Implementation Progress
 
-Current estimated progress: 73%
+Current estimated progress: 78%
 
 - AST: 75%
 - Scanner: 80%
 - Parser: 80%
-- Type Checker: 70%
+- Type Checker: 85%
 - Code Generation: 0%
 
 ## Milestone Achievements
@@ -220,3 +226,10 @@ The Rust implementation can now:
 - Better error formatting for type mismatch errors
 - Fixed function parameter type checking
 - Added specific handling for object literal errors (missing/extra properties)
+- Refactored type checker to use a Relater struct for type compatibility
+  checking
+- Implemented structured approach to type relationships similar to Go
+  implementation
+- Improved object interface compatibility checking with property-by-property
+  verification
+- Added support for function signature compatibility checking
