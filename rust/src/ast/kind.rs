@@ -34,12 +34,30 @@ pub enum Kind {
     CommaToken,        // ,
     LessThanToken,     // <
     GreaterThanToken,  // >
-    PlusToken,         // +
-    MinusToken,        // -
-    AsteriskToken,     // *
-    SlashToken,        // /
-    EqualsToken,       // =
-    ColonToken,        // :
+
+    // Operators
+    PlusToken,       // +
+    PlusEqualsToken, // +=
+    PlusPlusToken,   // ++
+
+    MinusToken,       // -
+    MinusEqualsToken, // -=
+    MinusMinusToken,  // --
+
+    AsteriskToken,               // *
+    AsteriskEqualsToken,         // *=
+    AsteriskAsteriskToken,       // **
+    AsteriskAsteriskEqualsToken, // **=
+
+    SlashToken,       // /
+    SlashEqualsToken, // /=
+
+    EqualsToken,             // =
+    EqualsEqualsToken,       // ==
+    EqualsEqualsEqualsToken, // ===
+    EqualsGreaterThanToken,  // =>
+
+    ColonToken, // :
 
     // Keywords
     FunctionKeyword,

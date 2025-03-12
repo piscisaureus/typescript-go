@@ -7,7 +7,6 @@ pub use kind::Kind;
 pub use node_flags::NodeFlags;
 
 use crate::error::Diagnostic;
-use std::any::Any;
 use std::rc::Rc;
 
 /// Represents a text range/position in source code
@@ -894,37 +893,64 @@ impl Node for VariableStatement {
 /// Node factory creates and manages AST nodes
 /// In Go, this is the NodeFactory struct
 pub struct NodeFactory {
-    // Add fields as needed for pooling and hooks
+    // In Go, this has hooks and pools for different node types
+    _hooks: Option<NodeFactoryHooks>,
+}
+
+/// Hooks for node creation, similar to NodeFactoryHooks in Go
+pub struct NodeFactoryHooks {
+    pub on_create: Option<Box<dyn Fn(&dyn Node)>>,
+    pub on_update: Option<Box<dyn Fn(&dyn Node, &dyn Node)>>,
+    pub on_clone: Option<Box<dyn Fn(&dyn Node, &dyn Node)>>,
 }
 
 impl NodeFactory {
     pub fn new() -> Self {
+        Self { _hooks: None }
+    }
+
+    pub fn with_hooks(hooks: NodeFactoryHooks) -> Self {
         Self {
-            // Initialize fields as needed
+            _hooks: Some(hooks),
+        }
+    }
+
+    // In Go, there's a hookNodeCreate function that calls OnCreate if it exists
+    fn hook_node_create<T: Node>(&self, node: &T) {
+        if let Some(hooks) = &self._hooks {
+            if let Some(on_create) = &hooks.on_create {
+                on_create(node);
+            }
         }
     }
 
     // Add methods for creating various AST nodes
     pub fn create_identifier(&self, text: String) -> Rc<Identifier> {
-        Rc::new(Identifier {
+        let node = Rc::new(Identifier {
             base: NodeBase::new(Kind::Identifier),
             text,
-        })
+        });
+        self.hook_node_create(&*node);
+        node
     }
 
     pub fn create_string_literal(&self, text: String) -> Rc<StringLiteral> {
-        Rc::new(StringLiteral {
+        let node = Rc::new(StringLiteral {
             base: NodeBase::new(Kind::StringLiteral),
             text,
-        })
+        });
+        self.hook_node_create(&*node);
+        node
     }
 
     pub fn create_numeric_literal(&self, text: String, value: f64) -> Rc<NumericLiteral> {
-        Rc::new(NumericLiteral {
+        let node = Rc::new(NumericLiteral {
             base: NodeBase::new(Kind::NumericLiteral),
             text,
             value,
-        })
+        });
+        self.hook_node_create(&*node);
+        node
     }
 
     pub fn create_type_reference(
@@ -932,10 +958,12 @@ impl NodeFactory {
         type_name: Rc<Identifier>,
         is_array_type: bool,
     ) -> Rc<TypeReference> {
-        Rc::new(TypeReference {
+        let node = Rc::new(TypeReference {
             base: NodeBase::new(Kind::TypeReference),
             type_name,
             is_array_type,
-        })
+        });
+        self.hook_node_create(&*node);
+        node
     }
 }

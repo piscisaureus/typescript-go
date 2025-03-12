@@ -28,22 +28,31 @@ pub enum ParsingContext {
 }
 
 /// Parser for TypeScript source code
-/// Corresponds to Parser in Go
+/// Corresponds to Parser struct in internal/parser/parser.go
 pub struct Parser {
+    // Scanner and token state
     scanner: Scanner,
     token: Kind,
 
+    // Source information
     file_name: String,
     source_text: String,
 
+    // Error tracking
     diagnostics: Vec<Diagnostic>,
 
-    parsing_context: Vec<ParsingContext>,
+    // Parsing state
+    language_version: u8,    // Corresponds to languageVersion in Go
+    language_variant: u8,    // Corresponds to languageVariant in Go
+    _source_file_flags: u32, // Corresponds to sourceFileFlags in Go
+    _parsing_context: Vec<ParsingContext>,
+    // Node creation
+    factory: ast::NodeFactory, // Corresponds to factory in Go
 }
 
 impl Parser {
     /// Creates a new parser
-    /// Corresponds to InitializeState in Go
+    /// Corresponds to InitializeState in Go (but more closely models the Go constructor pattern)
     pub fn new(file_name: &str, source_text: &str) -> Self {
         let mut parser = Self {
             scanner: Scanner::new(source_text),
@@ -51,13 +60,26 @@ impl Parser {
             file_name: file_name.to_owned(),
             source_text: source_text.to_owned(),
             diagnostics: Vec::new(),
-            parsing_context: Vec::new(),
+            language_version: 99, // Latest version (like ScriptTargetLatest)
+            language_variant: 0,  // Standard language variant
+            _source_file_flags: 0,
+            _parsing_context: Vec::new(),
+            factory: ast::NodeFactory::new(), // Initialize factory
         };
 
-        // Advance to the first token
-        parser.next_token();
-
+        parser.initialize_state(file_name, source_text);
         parser
+    }
+
+    /// Initialize parser state
+    /// Corresponds to InitializeState in Go
+    fn initialize_state(&mut self, _file_name: &str, _source_text: &str) {
+        // Set scanner language settings
+        self.scanner.set_language_version(self.language_version);
+        self.scanner.set_language_variant(self.language_variant);
+
+        // Advance to the first token
+        self.next_token();
     }
 
     /// Advance to the next token
@@ -70,32 +92,45 @@ impl Parser {
     /// Parse a source file
     /// Corresponds to parseSourceFileWorker in Go
     pub fn parse_source_file(&mut self) -> Result<Rc<ast::SourceFile>> {
+        // Start of parsing source file
+        let start_pos = 0;
         let mut statements = Vec::new();
 
-        // Parse statements
+        // Parse statements until end of file
+        // This follows the Go implementation's structure
         while self.token != Kind::EndOfFile {
             if let Some(statement) = self.parse_statement()? {
                 statements.push(statement);
             }
         }
 
-        // Create source file node
+        // Extract just the filename without path
         let file_name_only = Path::new(&self.file_name)
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| self.file_name.clone());
 
+        // Create a simple line map (in Go this is more complete)
+        let mut line_map = vec![0];
+        for (pos, ch) in self.source_text.char_indices() {
+            if ch == '\n' {
+                line_map.push(pos + 1);
+            }
+        }
+
+        // Create source file node - more closely follows Go's factory pattern
+        // In Go, this would use factory.createSourceFile()
         let source_file = Rc::new(ast::SourceFile {
             base: ast::NodeBase {
                 kind: Kind::SourceFile,
                 flags: NodeFlags::None,
-                loc: TextRange::new(0, self.source_text.len()),
+                loc: TextRange::new(start_pos, self.source_text.len()),
             },
             text: self.source_text.clone(),
             file_name: file_name_only,
-            language_version: 0, // ES2015 (ES6)
+            language_version: self.language_version, // Use the parser's language version
             statements,
-            line_map: vec![0], // TODO: Build a proper line map
+            line_map, // More complete line map implementation
             diagnostics: self.diagnostics.clone(),
         });
 
@@ -1233,9 +1268,29 @@ impl Parser {
 }
 
 /// Parse a source file with the given name and text
-/// Corresponds to ParseSourceFile in Go
+/// This function corresponds directly to ParseSourceFile in Go,
+/// which creates a parser and delegates to parseSourceFileWorker
 pub fn parse_source_file(file_name: &str, source_text: &str) -> Result<Rc<ast::SourceFile>> {
     let mut parser = Parser::new(file_name, source_text);
+    parser.parse_source_file()
+}
+
+/// Create a Parser and parse a TypeScript file with specific language settings
+/// Corresponds to ParseFile in Go
+pub fn parse_file(
+    file_name: &str,
+    source_text: &str,
+    language_version: u8,
+    language_variant: u8,
+) -> Result<Rc<ast::SourceFile>> {
+    let mut parser = Parser::new(file_name, source_text);
+
+    // Update settings to match requested configuration
+    parser.language_version = language_version;
+    parser.language_variant = language_variant;
+    parser.scanner.set_language_version(language_version);
+    parser.scanner.set_language_variant(language_variant);
+
     parser.parse_source_file()
 }
 
