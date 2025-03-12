@@ -144,30 +144,42 @@ demo("hello", 42);
 
 ## Next Steps
 
-1. **Type Inference**:
+1. **D.TS Integration and Generics**:
+   - Improve support for .d.ts declaration files (basic loading is now implemented)
+   - Further develop generics system (`<T>` in `Array<T>`)
+   - Add type parameter substitution
+   - Support function overloading
+   - Improve ambient declarations support
+   - Create generic interface resolution
+
+2. **Type Inference**:
    - Add more sophisticated type inference beyond basic literals
    - Handle more complex expressions
 
-2. **Code Generation**:
+3. **Code Generation**:
    - Infrastructure for generating JavaScript or other target code
    - Emit compiled JavaScript for the demo program
 
-3. **Extended Language Features**:
+4. **Extended Language Features**:
    - Expand parser to handle more TypeScript constructs
    - Support more complex type annotations
+   - Add rest and spread parameter handling
+   - Implement conditional types
 
-4. **Better Error Reporting**:
+5. **Better Error Reporting**:
    - Improve position tracking
    - Add line and column information to errors
 
 ## Implementation Progress
 
-Current estimated progress: 85%
+Current estimated progress: 92%
 
-- AST: 80%
-- Scanner: 82%
-- Parser: 85%
-- Type Checker: 90%
+- AST: 85%
+- Scanner: 85%
+- Parser: 90%
+- Type Checker: 92%
+- D.TS Support: 50%
+- Generics: 40%
 - Code Generation: 0%
 
 ## Milestone Achievements
@@ -218,6 +230,24 @@ The Rust implementation can now:
 
 ## Recent Improvements
 
+- Enhanced generics support and .d.ts integration:
+  - Added support for parsing generic interfaces with type parameters (e.g., `interface Array<T>`)
+  - Implemented type parameter substitution system for generic interfaces
+  - Added comprehensive system for instantiating generic interfaces with concrete types
+  - Modified type checker to properly handle array access on generic Array<T> interfaces
+  - Added TypeParameter type to represent generic type parameters like T
+  - Implemented type substitution mechanism for converting generic types to concrete types
+
+- Added support for loading and parsing declaration (.d.ts) files:
+  - Implemented file detection for .d.ts files in file loader
+  - Added support for setting IsDeclarationFile and Ambient flags on SourceFile nodes
+  - Created a standard library loader for automatically including .d.ts files
+  - Implemented basic module resolution with proper handling of .d.ts files
+  - Added support for the `lib.array.simple.d.ts` file with Array interface definition
+- Improved support for array types with union element types (e.g., `(string | number)[]`)
+- Removed special case handling for array methods in favor of a more generic approach
+- Fixed parser to correctly handle parenthesized union types in array contexts
+- Updated property access resolution for array types to use registry of built-in methods
 - Added support for union types (string | number)
 - Implemented parsing and type checking for union types
 - Added type compatibility rules for union types
@@ -242,7 +272,5 @@ The Rust implementation can now:
   - Object types not assignable to union of primitive types
   - Union types assignable if any member is assignable to target
   - Source type assignable to union if assignable to any union member
-- Added support for array methods including push() with proper type checking
-- Improved object interface compatibility checking with property-by-property
-  verification
+- Improved object interface compatibility checking with property-by-property verification
 - Added support for function signature compatibility checking

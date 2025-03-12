@@ -111,12 +111,27 @@ impl TypeChecker {
                         }
                     }
 
-                    // Add interface to type context
-                    context.add_interface(interface_name.clone(), properties.clone());
-
-                    // Also register it as a named type
-                    let interface_type = Type::Interface(interface_name, properties);
-                    context.add_type(interface_decl.name.text.clone(), interface_type);
+                    // Check if this is a generic interface with type parameters
+                    if !interface_decl.type_parameters.is_empty() {
+                        // Collect the type parameter names
+                        let type_params: Vec<String> = interface_decl.type_parameters.iter()
+                            .map(|id| id.text.clone())
+                            .collect();
+                        
+                        eprintln!("[DEBUG] Registering generic interface {} with type parameters: {:?}", 
+                            interface_name, type_params);
+                            
+                        // Add as a generic interface
+                        context.add_generic_interface(interface_name.clone(), type_params, properties.clone());
+                    } else {
+                        // Add as a regular interface
+                        eprintln!("[DEBUG] Registering regular interface: {}", interface_name);
+                        context.add_interface(interface_name.clone(), properties.clone());
+                        
+                        // Register as a named type
+                        let interface_type = Type::Interface(interface_name, properties);
+                        context.add_type(interface_decl.name.text.clone(), interface_type);
+                    }
                 }
             }
         }
@@ -160,6 +175,7 @@ impl TypeChecker {
                     let signature = FunctionSignature {
                         parameters: param_types,
                         return_type,
+                        type_parameters: Vec::new(), // Not parsing type parameters yet
                     };
 
                     // Add function to context
@@ -217,6 +233,7 @@ impl TypeChecker {
                     let signature = FunctionSignature {
                         parameters: param_types,
                         return_type: return_type,
+                        type_parameters: Vec::new(), // Not parsing type parameters yet
                     };
 
                     // Add function to context
@@ -677,6 +694,7 @@ impl TypeChecker {
                     let signature = FunctionSignature {
                         parameters: param_types,
                         return_type,
+                        type_parameters: Vec::new(),
                     };
 
                     // Don't check function body for now, just return function type
@@ -717,13 +735,28 @@ impl TypeChecker {
 
                     // Check for array type methods
                     // In the Go implementation, array methods are defined in the standard library .d.ts files
-                    // and resolved through the normal property access mechanisms, not hardcoded in the checker
+                    // and resolved through the normal property access mechanisms
                     if let Type::Array(elem_type) = &obj_type {
                         eprintln!("[DEBUG] Processing property access on array type");
                         eprintln!("[DEBUG] Array element type: {}", self.format_type(elem_type));
                         eprintln!("[DEBUG] Looking for property: {}", prop_name);
                         
-                        // Check special array methods through our built-ins registry
+                        // First check if we have an instantiated generic interface for Array
+                        // Try to instantiate the Array interface with the element type
+                        if let Some(array_type) = context.instantiate_generic_interface("Array", &[(**elem_type).clone()]) {
+                            eprintln!("[DEBUG] Instantiated Array<T> interface with T={}", self.format_type(elem_type));
+                            
+                            // Look for property in the instantiated interface
+                            if let Type::Interface(_, props) = &array_type {
+                                if let Some((_, prop_type)) = props.iter().find(|(name, _)| name == prop_name) {
+                                    eprintln!("[DEBUG] Found property {} in instantiated Array interface: {}", 
+                                             prop_name, self.format_type(prop_type));
+                                    return Ok(prop_type.clone());
+                                }
+                            }
+                        }
+                        
+                        // Fallback to the built-ins registry for backward compatibility
                         let array_method_name = format!("Array.prototype.{}", prop_name);
                         if let Some(built_in_type) = context.get_type(&array_method_name) {
                             eprintln!("[DEBUG] Found built-in type for {}: {}", 
@@ -736,6 +769,7 @@ impl TypeChecker {
                                     let updated_sig = FunctionSignature {
                                         parameters: vec![(**elem_type).clone()],
                                         return_type: sig.return_type.clone(),
+                                        type_parameters: Vec::new(),
                                     };
                                     return Ok(Type::Function(Box::new(updated_sig)));
                                 }
@@ -746,30 +780,8 @@ impl TypeChecker {
                             eprintln!("[DEBUG] No built-in type found for {}", array_method_name);
                         }
                         
-                        // For arrays, check common methods
-                        if prop_name == "join" {
-                            eprintln!("[DEBUG] Using hardcoded join method");
-                            // Simplified handling - join method takes a string and returns a string
-                            return Ok(Type::Function(Box::new(FunctionSignature {
-                                parameters: vec![Type::String],
-                                return_type: Type::String,
-                            })));
-                        } else if prop_name == "push" {
-                            eprintln!("[DEBUG] Using hardcoded push method");
-                            // Push method takes the element type and returns the new length
-                            // For push(), we need to handle union types properly
-                            return Ok(Type::Function(Box::new(FunctionSignature {
-                                parameters: vec![(**elem_type).clone()],
-                                return_type: Type::Number, // push returns the new length
-                            })));
-                        } else if prop_name == "pop" {
-                            eprintln!("[DEBUG] Using hardcoded pop method");
-                            // Pop returns an element of the array or undefined
-                            return Ok(Type::Function(Box::new(FunctionSignature {
-                                parameters: vec![],
-                                return_type: (**elem_type).clone(), // Actually should be elem_type | undefined
-                            })));
-                        } else if prop_name == "length" {
+                        // Last resort: hardcoded common properties for maximum compatibility
+                        if prop_name == "length" {
                             eprintln!("[DEBUG] Using hardcoded length property");
                             // Length is a property, not a method
                             return Ok(Type::Number);
@@ -845,6 +857,7 @@ impl TypeChecker {
                             return Ok(Type::Function(Box::new(FunctionSignature {
                                 parameters: vec![],
                                 return_type: Type::Any,
+                                type_parameters: Vec::new(),
                             })));
                         }
                         _ => {
@@ -1204,6 +1217,7 @@ impl TypeChecker {
                         let string_signature = FunctionSignature {
                             parameters: string_params,
                             return_type: Type::String,
+                            type_parameters: Vec::new(),
                         };
                         return Ok(Type::Function(Box::new(string_signature)));
                     }
@@ -1213,8 +1227,19 @@ impl TypeChecker {
                         // Special debug for array types
                         if ident.text == "codes" {
                             eprintln!("[DEBUG] Variable 'codes' has type: {}", self.format_type(&var_type));
+                            
+                            // Check if this is an array type and provide detailed debugging
                             if let Type::Array(elem_type) = &var_type {
                                 eprintln!("[DEBUG] codes is an array with element type: {}", self.format_type(elem_type));
+                                
+                                // Further check if the element type is a union
+                                if let Type::Union(types) = &**elem_type {
+                                    eprintln!("[DEBUG] Element is a union with {} types", types.len());
+                                    for (i, t) in types.iter().enumerate() {
+                                        eprintln!("[DEBUG]   Union member {}: {}", i, self.format_type(t));
+                                    }
+                                    eprintln!("[DEBUG] This represents (string | number)[] not string | number[]");
+                                }
                             } else {
                                 eprintln!("[DEBUG] codes is NOT detected as an array type!");
                             }
@@ -1363,8 +1388,18 @@ impl TypeChecker {
                                 let arg_type = self.get_type_from_node(Rc::clone(&type_ref.type_arguments[0]))?;
                                 eprintln!("[DEBUG] Array element type from type argument: {}", self.format_type(&arg_type));
                                 
-                                let array_type = Type::Array(Box::new(arg_type));
-                                eprintln!("[DEBUG] Created array type with argument: {}", self.format_type(&array_type));
+                                let array_type = Type::Array(Box::new(arg_type.clone()));
+                                
+                                // Add extra debug information to verify the type structure
+                                eprintln!("[DEBUG] Created array type: {}", self.format_type(&array_type));
+                                if let Type::Union(types) = &arg_type {
+                                    eprintln!("[DEBUG] Element is a union with {} types", types.len());
+                                    for (i, t) in types.iter().enumerate() {
+                                        eprintln!("[DEBUG]   Union member {}: {}", i, self.format_type(t));
+                                    }
+                                    eprintln!("[DEBUG] This represents (string | number)[] not string | number[]");
+                                }
+                                
                                 return Ok(array_type);
                             } else {
                                 eprintln!("[DEBUG] Multiple type arguments not supported, using Any");

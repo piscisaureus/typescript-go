@@ -30,13 +30,21 @@ impl Program {
     /// Create a new program
     /// Corresponds to NewProgram() in internal/compiler/program.go
     pub fn new(options: ProgramOptions) -> Self {
-        Self {
+        let mut program = Self {
             root_files: Vec::new(),
             diagnostics: Vec::new(),
             options,
             host: Box::new(DefaultCompilerHost::new()),
             file_loader: FileLoader::new(),
+        };
+        
+        // Load standard library files if not explicitly disabled
+        // This follows the Go implementation's behavior
+        if !program.options.no_lib {
+            program.load_standard_library();
         }
+        
+        program
     }
 
     /// Create a new program with default options
@@ -109,6 +117,27 @@ impl Program {
     pub fn process(&mut self) -> std::result::Result<(), String> {
         // Type checking is the only processing we currently do
         self.type_check()
+    }
+    
+    /// Load standard library files
+    /// Similar to loadDefaultLibFiles in the Go implementation
+    fn load_standard_library(&mut self) {
+        // Load standard library files
+        let lib_files = self.file_loader.load_standard_library();
+        
+        // Add the successfully loaded files to our program
+        for file_result in lib_files {
+            match file_result {
+                Ok(source_file) => {
+                    println!("Loaded standard library file: {}", source_file.file_name);
+                    self.add_source_file(source_file);
+                }
+                Err(diag) => {
+                    // Add the diagnostic and continue (don't abort on parse errors)
+                    self.diagnostics.push(diag);
+                }
+            }
+        }
     }
 
     /// Get the root source files

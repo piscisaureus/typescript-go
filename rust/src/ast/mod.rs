@@ -711,6 +711,7 @@ impl Node for UnionType {
 pub struct InterfaceDeclaration {
     pub base: NodeBase,
     pub name: Rc<Identifier>,
+    pub type_parameters: Vec<Rc<Identifier>>, // For generic interfaces like interface Array<T> {...}
     pub members: Vec<Rc<dyn Node>>,
 }
 

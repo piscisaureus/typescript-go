@@ -18,6 +18,12 @@ pub struct ProgramOptions {
 
     /// Module system to use
     pub module: ModuleKind,
+    
+    /// Disable loading of standard library files (lib.*.d.ts)
+    pub no_lib: bool,
+    
+    /// List of specific library files to include (when no_lib is false)
+    pub lib: Vec<String>,
 }
 
 /// Target ECMAScript version
@@ -54,6 +60,8 @@ impl Default for ProgramOptions {
             emit_declaration: false,
             target: TargetVersion::ES2020,
             module: ModuleKind::None,
+            no_lib: false,
+            lib: Vec::new(), // Empty means use default libs for the target
         }
     }
 }

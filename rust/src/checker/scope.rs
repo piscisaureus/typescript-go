@@ -19,6 +19,9 @@ pub struct TypeContext {
 
     // Map of interface names to their properties
     interfaces: HashMap<String, Vec<(String, Type)>>, // Corresponds to interfaces map in scope.Scope
+    
+    // Map of generic interface names to their definitions with type parameters
+    generic_interfaces: HashMap<String, (Vec<String>, Vec<(String, Type)>)>, // name -> (type_params, properties)
 }
 
 impl TypeContext {
@@ -30,6 +33,7 @@ impl TypeContext {
             functions: HashMap::new(),
             types: HashMap::new(),
             interfaces: HashMap::new(),
+            generic_interfaces: HashMap::new(),
         }
     }
 
@@ -89,6 +93,173 @@ impl TypeContext {
     pub fn get_interface(&self, name: &str) -> Option<Vec<(String, Type)>> {
         self.interfaces.get(name).cloned()
     }
+    
+    // Add a generic interface to the context
+    pub fn add_generic_interface(&mut self, name: String, type_params: Vec<String>, properties: Vec<(String, Type)>) {
+        let name_clone = name.clone();
+        let type_params_clone1 = type_params.clone();
+        let type_params_clone2 = type_params.clone();
+        let properties_clone1 = properties.clone();
+        let properties_clone2 = properties.clone();
+        
+        self.generic_interfaces.insert(name_clone.clone(), (type_params_clone1, properties_clone1));
+        
+        // Also register it in the regular interface map with TypeParameter types
+        let mut generic_properties = Vec::new();
+        for (prop_name, prop_type) in &properties_clone2 {
+            // Replace type parameters with their TypeParameter representations
+            let param_type = self.replace_with_type_parameters(prop_type.clone(), &type_params_clone2);
+            generic_properties.push((prop_name.clone(), param_type));
+        }
+        
+        self.interfaces.insert(name_clone.clone(), generic_properties);
+        
+        // Also add it to the types registry as a GenericInterface
+        self.add_type(name_clone.clone(), Type::GenericInterface(name_clone, type_params_clone2, properties_clone2));
+    }
+    
+    // Get a generic interface with its type parameters
+    pub fn get_generic_interface(&self, name: &str) -> Option<(Vec<String>, Vec<(String, Type)>)> {
+        self.generic_interfaces.get(name).cloned()
+    }
+    
+    // Create an instantiated interface type by substituting type parameters with actual types
+    pub fn instantiate_generic_interface(
+        &self, 
+        interface_name: &str, 
+        type_args: &[Type]
+    ) -> Option<Type> {
+        if let Some((type_params, properties)) = self.get_generic_interface(interface_name) {
+            // Check if number of type arguments matches type parameters
+            if type_params.len() != type_args.len() {
+                return None;
+            }
+            
+            // Create a substitution map
+            let mut subst_map = HashMap::new();
+            for (i, param_name) in type_params.iter().enumerate() {
+                subst_map.insert(param_name.clone(), type_args[i].clone());
+            }
+            
+            // Apply substitution to all properties
+            let mut instantiated_props = Vec::new();
+            for (prop_name, prop_type) in &properties {
+                let instantiated_type = self.substitute_type_parameters(prop_type.clone(), &subst_map);
+                instantiated_props.push((prop_name.clone(), instantiated_type));
+            }
+            
+            // Return the instantiated interface type
+            Some(Type::Interface(
+                format!("{}_{}", interface_name, self.type_args_to_string(type_args)), 
+                instantiated_props
+            ))
+        } else {
+            None
+        }
+    }
+    
+    // Helper to substitute type parameters with actual types
+    fn substitute_type_parameters(&self, typ: Type, subst_map: &HashMap<String, Type>) -> Type {
+        match typ {
+            Type::TypeParameter(name) => {
+                // Replace type parameter with actual type
+                if let Some(actual_type) = subst_map.get(&name) {
+                    actual_type.clone()
+                } else {
+                    Type::Any // Default to Any if no substitution found
+                }
+            }
+            Type::Array(element_type) => {
+                // Recursively substitute in array element type
+                let subst_element = self.substitute_type_parameters(*element_type, subst_map);
+                Type::Array(Box::new(subst_element))
+            }
+            Type::Union(types) => {
+                // Recursively substitute in all union types
+                let subst_types = types.into_iter()
+                    .map(|t| self.substitute_type_parameters(t, subst_map))
+                    .collect();
+                Type::Union(subst_types)
+            }
+            Type::Function(signature) => {
+                // Create a new signature with substituted types
+                let subst_params = signature.parameters.into_iter()
+                    .map(|t| self.substitute_type_parameters(t, subst_map))
+                    .collect();
+                let subst_return = self.substitute_type_parameters(signature.return_type, subst_map);
+                
+                Type::Function(Box::new(FunctionSignature {
+                    parameters: subst_params,
+                    return_type: subst_return,
+                    type_parameters: signature.type_parameters, // Keep the original type parameters
+                }))
+            }
+            // Handle other types that might contain type parameters
+            Type::Object(Some(props)) => {
+                let subst_props = props.into_iter()
+                    .map(|(name, t)| (name, self.substitute_type_parameters(t, subst_map)))
+                    .collect();
+                Type::Object(Some(subst_props))
+            }
+            // Other types just get returned as-is
+            _ => typ,
+        }
+    }
+    
+    // Helper to convert types to TypeParameter types where appropriate
+    fn replace_with_type_parameters(&self, typ: Type, type_params: &[String]) -> Type {
+        match typ {
+            // If we see Type::Any in the declaration, see if it corresponds to one of our type parameters
+            Type::Any => {
+                // Here we'd need some way to connect this Any to a specific type parameter
+                // For now, we'll just use the first type parameter
+                if !type_params.is_empty() {
+                    Type::TypeParameter(type_params[0].clone())
+                } else {
+                    Type::Any
+                }
+            }
+            Type::Array(element_type) => {
+                let param_element = self.replace_with_type_parameters(*element_type, type_params);
+                Type::Array(Box::new(param_element))
+            }
+            Type::Union(types) => {
+                let param_types = types.into_iter()
+                    .map(|t| self.replace_with_type_parameters(t, type_params))
+                    .collect();
+                Type::Union(param_types)
+            }
+            // Other types just get returned as-is
+            _ => typ,
+        }
+    }
+    
+    // Helper to convert type arguments to a string representation for naming instantiated interfaces
+    fn type_args_to_string(&self, type_args: &[Type]) -> String {
+        type_args.iter()
+            .map(|t| match t {
+                Type::String => "string".to_string(),
+                Type::Number => "number".to_string(),
+                Type::Boolean => "boolean".to_string(),
+                Type::Array(elem) => format!("{}Array", self.type_to_string(elem)),
+                Type::Union(types) => format!("Union{}", types.len()),
+                _ => "Any".to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join("_")
+    }
+    
+    // Helper to convert a type to a string representation
+    fn type_to_string(&self, typ: &Type) -> String {
+        match typ {
+            Type::String => "string".to_string(),
+            Type::Number => "number".to_string(),
+            Type::Boolean => "boolean".to_string(),
+            Type::Array(elem) => format!("{}Array", self.type_to_string(elem)),
+            Type::Union(types) => format!("Union{}", types.len()),
+            _ => "Any".to_string(),
+        }
+    }
 
     // Push a new scope onto the stack
     // Corresponds to scope.PushScope() in internal/checker/scope.go
@@ -117,6 +288,7 @@ impl TypeContext {
         let string_signature = FunctionSignature {
             parameters: string_params,
             return_type: Type::String,
+            type_parameters: Vec::new(),
         };
         self.add_function("String".to_string(), string_signature);
         eprintln!("[DEBUG] Added String function");
@@ -126,6 +298,7 @@ impl TypeContext {
         let log_signature = FunctionSignature {
             parameters: vec![Type::Any], // console.log can take any arguments
             return_type: Type::Any,
+            type_parameters: Vec::new(),
         };
 
         // Make console.log function available
@@ -149,6 +322,7 @@ impl TypeContext {
         let push_signature = FunctionSignature {
             parameters: vec![Type::Any], // Will be replaced with actual element type when used
             return_type: Type::Number,
+            type_parameters: Vec::new(),
         };
         eprintln!("[DEBUG] Created push signature: params={:?}, return={:?}", 
                  push_signature.parameters, push_signature.return_type);
@@ -157,12 +331,14 @@ impl TypeContext {
         let pop_signature = FunctionSignature {
             parameters: vec![],
             return_type: Type::Any, // Will be replaced with actual element type when used
+            type_parameters: Vec::new(),
         };
         
         // Array.prototype.join method - takes string separator, returns string
         let join_signature = FunctionSignature {
             parameters: vec![Type::String],
             return_type: Type::String,
+            type_parameters: Vec::new(),
         };
         
         // Add all of these to a registry for array methods that can be referenced
@@ -177,7 +353,7 @@ impl TypeContext {
         eprintln!("[DEBUG] Added Array.prototype.join to types registry");
         
         // Check if these types are really in our registry
-        if let Some(push_type) = self.get_type("Array.prototype.push") {
+        if let Some(_push_type) = self.get_type("Array.prototype.push") {
             eprintln!("[DEBUG] Verified Array.prototype.push is in registry");
         } else {
             eprintln!("[DEBUG] ERROR: Array.prototype.push is NOT in registry!");

@@ -35,6 +35,10 @@ pub enum NodeFlags {
     // This is primarily used by transformations to determine if a subtree needs to be visited.
     PossiblyContainsDynamicImport = 1 << 21,
     PossiblyContainsImportMeta = 1 << 22,
+    // Ambient flag is used for declaration files and declare statements
+    Ambient = 1 << 23,
+    // Flag for declaration files (.d.ts files)
+    IsDeclarationFile = 1 << 24,
     // TODO: Add more flags as needed
 }
 

@@ -25,9 +25,17 @@ pub fn is_known_property(target_type: &Type, property_name: &str) -> bool {
             // Check if property exists in interface properties
             props.iter().any(|(name, _)| name == property_name)
         }
+        Type::GenericInterface(_, _, props) => {
+            // Check if property exists in generic interface properties
+            props.iter().any(|(name, _)| name == property_name)
+        }
         Type::Union(types) => {
             // For union types, property must exist in at least one constituent type
             types.iter().any(|t| is_known_property(t, property_name))
+        }
+        Type::TypeParameter(_) => {
+            // Type parameters don't have known properties
+            false
         }
         _ => false,
     }
@@ -246,6 +254,19 @@ pub fn format_type(typ: &Type) -> String {
                 "interface{}".to_string()
             } else {
                 name.clone()
+            }
+        }
+        Type::TypeParameter(name) => {
+            // Format as the type parameter name
+            name.clone()
+        }
+        Type::GenericInterface(name, type_params, _) => {
+            // Format as "Array<T>" or "Map<K, V>"
+            if type_params.is_empty() {
+                name.clone()
+            } else {
+                let params = type_params.join(", ");
+                format!("{}<{}>", name, params)
             }
         }
         Type::Union(types) => {

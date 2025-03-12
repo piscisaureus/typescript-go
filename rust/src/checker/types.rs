@@ -19,6 +19,9 @@ pub enum Type {
     // None for empty object, Some for object with properties
     Interface(String, Vec<(String, Type)>), // Corresponds to types.InterfaceType in Go
     // String is interface name, Vec contains properties
+    TypeParameter(String), // Type parameter like T in Array<T>
+    GenericInterface(String, Vec<String>, Vec<(String, Type)>), // Generic interface like Array<T>
+    // Fields: name, type_parameters, properties
     Function(Box<FunctionSignature>), // Corresponds to types.FunctionType in Go
     Union(Vec<Type>),                 // Corresponds to types.UnionType in Go
                                       // Union type (e.g., string | number)
@@ -28,6 +31,7 @@ pub enum Type {
 // Corresponds to types.Signature in internal/checker/types.go
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionSignature {
-    pub parameters: Vec<Type>, // Corresponds to params field in types.Signature
-    pub return_type: Type,     // Corresponds to result field in types.Signature
+    pub parameters: Vec<Type>,         // Corresponds to params field in types.Signature
+    pub return_type: Type,             // Corresponds to result field in types.Signature
+    pub type_parameters: Vec<String>,  // For generic functions like function foo<T>(param: T): T
 }

@@ -1491,6 +1491,49 @@ impl Parser {
                 "Expected identifier after 'interface' keyword",
             ));
         };
+        
+        // Parse type parameters if present (e.g., interface Array<T> {})
+        let mut type_parameters = Vec::new();
+        if self.token == Kind::LessThanToken {
+            self.next_token(); // Consume '<'
+            
+            // Parse type parameters
+            while self.token != Kind::GreaterThanToken && self.token != Kind::EndOfFile {
+                if self.token == Kind::Identifier {
+                    let param_name = self.scanner.token_text().to_owned();
+                    let param = Rc::new(ast::Identifier {
+                        base: self.create_node_base(Kind::Identifier),
+                        text: param_name,
+                    });
+                    type_parameters.push(param);
+                    self.next_token();
+                    
+                    // Check for comma or end of type parameter list
+                    if self.token == Kind::CommaToken {
+                        self.next_token();
+                    } else if self.token != Kind::GreaterThanToken {
+                        return Err(self.error(
+                            DiagnosticCode::SyntaxError,
+                            "Expected ',' or '>' in type parameter list",
+                        ));
+                    }
+                } else {
+                    return Err(self.error(
+                        DiagnosticCode::SyntaxError,
+                        "Expected identifier as type parameter",
+                    ));
+                }
+            }
+            
+            // Expect '>'
+            if self.token != Kind::GreaterThanToken {
+                return Err(self.error(
+                    DiagnosticCode::SyntaxError,
+                    "Expected '>' to close type parameter list",
+                ));
+            }
+            self.next_token(); // Consume '>'
+        }
 
         // Expect '{'
         if self.token != Kind::OpenBraceToken {
@@ -1531,6 +1574,7 @@ impl Parser {
         let interface_decl = Rc::new(ast::InterfaceDeclaration {
             base,
             name,
+            type_parameters,
             members,
         });
 
