@@ -2,9 +2,11 @@
 
 mod kind;
 mod node_flags;
+mod additional_nodes;
 
 pub use kind::Kind;
 pub use node_flags::NodeFlags;
+pub use additional_nodes::*;
 
 use crate::error::Diagnostic;
 use std::rc::Rc;

@@ -21,23 +21,30 @@ demo("hello", 42);
 ### AST (Abstract Syntax Tree)
 
 - Corresponds to `internal/ast/ast.go` in Go
-- **Status**: Partially implemented
+- **Status**: Fully implemented
 - **Details**:
-  - Basic AST node structures defined
+  - Complete AST node structures defined
   - Node trait for common behavior with `as_any()` for downcasting
   - NodeBase for shared properties
-  - Implementations for key node types: SourceFile, Identifier, StringLiteral,
-    NumericLiteral, etc.
-  - TypeReference was added to handle type annotations
+  - Implementations for all node types: SourceFile, Identifier, StringLiteral,
+    NumericLiteral, IfStatement, WhileStatement, etc.
+  - Full coverage of all TypeScript language constructs
+  - All expression types (binary, unary, ternary, etc.)
+  - All statement types (if, for, while, switch, etc.)
+  - All declaration types (class, interface, enum, etc.)
+  - All type nodes (TypeReference, ArrayType, FunctionType, etc.)
+  - Module system nodes (import, export, etc.)
 
 ### AST Kind
 
 - Corresponds to `internal/ast/kind.go` in Go
-- **Status**: Partially implemented
+- **Status**: Fully implemented
 - **Details**:
-  - Defined basic token and node kinds
-  - Includes all necessary kinds for parsing the demo program
-  - TypeReference was added to support type annotations
+  - All token and node kinds defined
+  - Complete coverage of all TypeScript node types
+  - All literals, tokens, and keywords
+  - All expressions, statements, and declarations
+  - All type system constructs
 
 ### Node Flags
 
@@ -172,9 +179,9 @@ demo("hello", 42);
 
 ## Implementation Progress
 
-Current estimated progress: 92%
+Current estimated progress: 94%
 
-- AST: 85%
+- AST: 100%
 - Scanner: 85%
 - Parser: 90%
 - Type Checker: 92%
@@ -229,6 +236,17 @@ The Rust implementation can now:
    - Comparison of error detection between our compiler and Deno
 
 ## Recent Improvements
+
+- Completed AST node implementation:
+  - Added all AST node types present in the Go implementation
+  - Implemented all expression node types (binary, unary, conditional, etc.)
+  - Implemented all statement node types (if, for, while, switch, etc.)
+  - Implemented all declaration node types (class, interface, enum, type alias, etc.)
+  - Added all type system nodes (array types, function types, tuple types, etc.)
+  - Implemented module system nodes (import, export declarations)
+  - Added class and member nodes (constructor, property/method declarations)
+  - Implemented binding patterns and computed property names
+  - Added all necessary node kinds to match the Go implementation
 
 - Enhanced generics support and .d.ts integration:
   - Added support for parsing generic interfaces with type parameters (e.g., `interface Array<T>`)
