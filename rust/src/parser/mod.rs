@@ -179,7 +179,16 @@ impl Parser {
                 println!("Return type parsed, token now: {:?}", self.token); // DEBUG: not in Go
                 Some(type_reference as Rc<dyn ast::Node>)
             } else {
-                None
+                // Return an error if a colon is present but no valid type follows
+                return Err(Diagnostic::new(
+                    DiagnosticCode::SyntaxError,
+                    "Expected type annotation after colon",
+                    &self.file_name,
+                    0, // TODO: Get actual position
+                    0, // TODO: Get actual length
+                    0, // TODO: Get actual line
+                    0, // TODO: Get actual column
+                ));
             }
         } else {
             None
@@ -587,3 +596,6 @@ pub fn parse_source_file(file_name: &str, source_text: &str) -> Result<Rc<ast::S
     let mut parser = Parser::new(file_name, source_text);
     parser.parse_source_file()
 }
+
+#[cfg(test)]
+mod tests;
