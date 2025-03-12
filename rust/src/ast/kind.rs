@@ -97,6 +97,12 @@ pub enum Kind {
     TypeReference,
     TypeLiteral,
     PropertySignature,
+    InterfaceDeclaration,
+    InterfaceKeyword,
+
+    // Destructuring patterns
+    ObjectBindingPattern,
+    BindingElement,
 }
 
 impl fmt::Display for Kind {

@@ -169,6 +169,9 @@ impl Parser {
             Kind::FunctionKeyword => self
                 .parse_function_declaration()
                 .map(|f| Some(f as Rc<dyn ast::Node>)),
+            Kind::InterfaceKeyword => self
+                .parse_interface_declaration()
+                .map(|i| Some(i as Rc<dyn ast::Node>)),
             Kind::ReturnKeyword => self
                 .parse_return_statement()
                 .map(|r| Some(r as Rc<dyn ast::Node>)),
@@ -258,8 +261,49 @@ impl Parser {
 
     /// Parse a single variable declaration
     /// Corresponds to parseVariableDeclaration in Go
+    /// Updated to support destructuring patterns
     fn parse_variable_declaration(&mut self) -> Result<Rc<ast::VariableDeclaration>> {
-        // Parse the variable name
+        // Check for object destructuring pattern
+        if self.token == Kind::OpenBraceToken {
+            // Parse object binding pattern
+            let object_binding = self.parse_object_binding_pattern()?;
+
+            // We don't support type annotations for destructuring patterns yet
+            let type_annotation = None;
+
+            // Parse initializer (required for destructuring)
+            let initializer = if self.token == Kind::EqualsToken {
+                self.next_token(); // Consume the equals
+
+                // Parse the initializer expression
+                let init_expr = self.parse_expression()?;
+                Some(init_expr)
+            } else {
+                return Err(self.error(
+                    DiagnosticCode::SyntaxError,
+                    "Destructuring declarations must have an initializer",
+                ));
+            };
+
+            // Create a placeholder name for compatibility
+            let placeholder_name = Rc::new(ast::Identifier {
+                base: ast::NodeBase::new(Kind::Identifier),
+                text: "_destructured".to_owned(),
+            });
+
+            // Create the variable declaration with binding pattern
+            let var_decl = Rc::new(ast::VariableDeclaration {
+                base: ast::NodeBase::new(Kind::VariableDeclaration),
+                name: placeholder_name,
+                binding_name: Some(object_binding as Rc<dyn ast::Node>),
+                initializer,
+                type_annotation,
+            });
+
+            return Ok(var_decl);
+        }
+
+        // Regular variable declaration case - parse the variable name
         if self.token != Kind::Identifier {
             return Err(self.error(DiagnosticCode::SyntaxError, "Expected variable name"));
         }
@@ -336,11 +380,137 @@ impl Parser {
         let var_decl = Rc::new(ast::VariableDeclaration {
             base: ast::NodeBase::new(Kind::VariableDeclaration),
             name,
+            binding_name: None,
             initializer,
             type_annotation,
         });
 
         Ok(var_decl)
+    }
+
+    /// Parse an object binding pattern (destructuring) like { a, b, c } or { x: y }
+    /// New method, not directly corresponding to a single Go method
+    fn parse_object_binding_pattern(&mut self) -> Result<Rc<ast::ObjectBindingPattern>> {
+        // Save the start position
+        let start_pos = self.scanner.token_pos();
+
+        // Expect '{'
+        if self.token != Kind::OpenBraceToken {
+            return Err(self.error(
+                DiagnosticCode::SyntaxError,
+                "Expected '{' for object binding pattern",
+            ));
+        }
+        self.next_token(); // Consume '{'
+
+        let mut elements = Vec::new();
+
+        // Parse binding elements until '}'
+        while self.token != Kind::CloseBraceToken && self.token != Kind::EndOfFile {
+            let element = self.parse_binding_element()?;
+            elements.push(element);
+
+            // Expect comma between elements
+            if self.token == Kind::CommaToken {
+                self.next_token(); // Consume ','
+            } else if self.token != Kind::CloseBraceToken {
+                return Err(self.error(
+                    DiagnosticCode::SyntaxError,
+                    "Expected ',' or '}' after binding element",
+                ));
+            }
+        }
+
+        // Expect '}'
+        if self.token != Kind::CloseBraceToken {
+            return Err(self.error(
+                DiagnosticCode::SyntaxError,
+                "Expected '}' to close object binding pattern",
+            ));
+        }
+
+        // Create and return object binding pattern node
+        let mut base = ast::NodeBase::new(Kind::ObjectBindingPattern);
+        let end_pos = self.scanner.pos();
+        base.set_pos(start_pos, end_pos);
+
+        self.next_token(); // Consume '}'
+
+        let binding_pattern = Rc::new(ast::ObjectBindingPattern { base, elements });
+
+        Ok(binding_pattern)
+    }
+
+    /// Parse a binding element within an object binding pattern
+    /// For example: 'a' or 'x: y' or 'z = defaultValue'
+    fn parse_binding_element(&mut self) -> Result<Rc<ast::BindingElement>> {
+        // Save the start position
+        let start_pos = self.scanner.token_pos();
+
+        // Parse property name
+        if self.token != Kind::Identifier {
+            return Err(self.error(
+                DiagnosticCode::SyntaxError,
+                "Expected identifier in binding pattern",
+            ));
+        }
+
+        let property_text = self.scanner.token_text().to_owned();
+        let property_name = Rc::new(ast::Identifier {
+            base: ast::NodeBase::new(Kind::Identifier),
+            text: property_text,
+        });
+        self.next_token();
+
+        // Check for binding name (if different from property name)
+        let (name, property_name_opt) = if self.token == Kind::ColonToken {
+            self.next_token(); // Consume ':'
+
+            // Parse the binding name
+            if self.token != Kind::Identifier {
+                return Err(self.error(
+                    DiagnosticCode::SyntaxError,
+                    "Expected identifier after ':' in binding pattern",
+                ));
+            }
+
+            let name_text = self.scanner.token_text().to_owned();
+            let name = Rc::new(ast::Identifier {
+                base: ast::NodeBase::new(Kind::Identifier),
+                text: name_text,
+            });
+            self.next_token();
+
+            (name, Some(property_name))
+        } else {
+            // Property name is the same as binding name
+            (property_name.clone(), None)
+        };
+
+        // Check for default value
+        let initializer = if self.token == Kind::EqualsToken {
+            self.next_token(); // Consume '='
+
+            // Parse the initializer expression
+            let init_expr = self.parse_expression()?;
+            Some(init_expr)
+        } else {
+            None
+        };
+
+        // Create and return binding element node
+        let mut base = ast::NodeBase::new(Kind::BindingElement);
+        let end_pos = self.scanner.pos();
+        base.set_pos(start_pos, end_pos);
+
+        let binding_element = Rc::new(ast::BindingElement {
+            base,
+            name,
+            property_name: property_name_opt,
+            initializer,
+        });
+
+        Ok(binding_element)
     }
 
     /// Parse a function declaration
@@ -649,95 +819,7 @@ impl Parser {
         // Handle object type literals: { name: string; age: number }
         else if self.token == Kind::OpenBraceToken {
             println!("  Parsing object type literal"); // DEBUG
-            self.next_token(); // consume '{'
-
-            let mut members = Vec::new();
-
-            // Parse object type members
-            while self.token != Kind::CloseBraceToken && self.token != Kind::EndOfFile {
-                // Parse member name
-                if self.token != Kind::Identifier {
-                    return Err(Diagnostic::new(
-                        DiagnosticCode::SyntaxError,
-                        "Expected property name in object type",
-                        &self.file_name,
-                        0, // TODO: Get actual position
-                        0, // TODO: Get actual length
-                        0, // TODO: Get actual line
-                        0, // TODO: Get actual column
-                    ));
-                }
-
-                let member_name = Rc::new(ast::Identifier {
-                    base: ast::NodeBase::new(Kind::Identifier),
-                    text: self.scanner.token_text().to_owned(),
-                });
-                self.next_token();
-
-                // Expect colon
-                if self.token != Kind::ColonToken {
-                    return Err(Diagnostic::new(
-                        DiagnosticCode::SyntaxError,
-                        "Expected ':' after property name in object type",
-                        &self.file_name,
-                        0, // TODO: Get actual position
-                        0, // TODO: Get actual length
-                        0, // TODO: Get actual line
-                        0, // TODO: Get actual column
-                    ));
-                }
-                self.next_token();
-
-                // Parse the member type
-                let member_type = self.parse_type()?;
-
-                // Create property signature
-                let property_signature = Rc::new(ast::PropertySignature {
-                    base: ast::NodeBase::new(Kind::PropertySignature),
-                    name: member_name,
-                    type_annotation: member_type,
-                });
-
-                members.push(property_signature as Rc<dyn ast::Node>);
-
-                // Expect semicolon or comma, or closing brace
-                if self.token == Kind::SemicolonToken || self.token == Kind::CommaToken {
-                    self.next_token();
-                } else if self.token != Kind::CloseBraceToken {
-                    return Err(Diagnostic::new(
-                        DiagnosticCode::SyntaxError,
-                        "Expected ';', ',' or '}' after property signature in object type",
-                        &self.file_name,
-                        0, // TODO: Get actual position
-                        0, // TODO: Get actual length
-                        0, // TODO: Get actual line
-                        0, // TODO: Get actual column
-                    ));
-                }
-            }
-
-            // Expect '}'
-            if self.token != Kind::CloseBraceToken {
-                return Err(Diagnostic::new(
-                    DiagnosticCode::SyntaxError,
-                    "Expected '}' at end of object type",
-                    &self.file_name,
-                    0, // TODO: Get actual position
-                    0, // TODO: Get actual length
-                    0, // TODO: Get actual line
-                    0, // TODO: Get actual column
-                ));
-            }
-            self.next_token();
-
-            // Create type literal
-            let type_literal = Rc::new(ast::TypeLiteral {
-                base: ast::NodeBase::new(Kind::TypeLiteral),
-                members,
-            });
-
-            println!("  Object type literal parsed, token now: {:?}", self.token); // DEBUG
-            Ok(type_literal as Rc<dyn ast::Node>)
+            self.parse_type_literal()
         } else {
             return Err(Diagnostic::new(
                 DiagnosticCode::SyntaxError,
@@ -1203,6 +1285,175 @@ impl Parser {
         });
 
         Ok(object_expr as Rc<dyn ast::Node>)
+    }
+
+    /// Parse an interface declaration
+    /// Corresponds to parseInterfaceDeclaration in the Go implementation
+    fn parse_interface_declaration(&mut self) -> Result<Rc<ast::InterfaceDeclaration>> {
+        // Expect 'interface' keyword
+        if self.token != Kind::InterfaceKeyword {
+            return Err(self.error(DiagnosticCode::SyntaxError, "Expected 'interface' keyword"));
+        }
+
+        // Save the interface token position for later use
+        let interface_pos = self.scanner.token_pos();
+        self.next_token();
+
+        // Parse interface name
+        let name = if self.token == Kind::Identifier {
+            let name_text = self.scanner.token_text().to_owned();
+            let identifier = Rc::new(ast::Identifier {
+                base: self.create_node_base(Kind::Identifier),
+                text: name_text,
+            });
+            self.next_token();
+            identifier
+        } else {
+            return Err(self.error(
+                DiagnosticCode::SyntaxError,
+                "Expected identifier after 'interface' keyword",
+            ));
+        };
+
+        // Expect '{'
+        if self.token != Kind::OpenBraceToken {
+            return Err(self.error(
+                DiagnosticCode::SyntaxError,
+                "Expected '{' after interface name",
+            ));
+        }
+        self.next_token();
+
+        // Parse interface members
+        let mut members = Vec::new();
+
+        while self.token != Kind::CloseBraceToken && self.token != Kind::EndOfFile {
+            let member = self.parse_property_signature()?;
+            members.push(member);
+
+            // Skip optional semicolon or comma
+            if self.token == Kind::SemicolonToken || self.token == Kind::CommaToken {
+                self.next_token();
+            }
+        }
+
+        // Expect '}'
+        if self.token != Kind::CloseBraceToken {
+            return Err(self.error(
+                DiagnosticCode::SyntaxError,
+                "Expected '}' to close interface declaration",
+            ));
+        }
+        self.next_token();
+
+        // Create and return interface declaration node
+        let mut base = ast::NodeBase::new(Kind::InterfaceDeclaration);
+        let end_pos = self.scanner.pos();
+        base.set_pos(interface_pos, end_pos);
+
+        let interface_decl = Rc::new(ast::InterfaceDeclaration {
+            base,
+            name,
+            members,
+        });
+
+        Ok(interface_decl)
+    }
+
+    /// Parse a property signature in an interface
+    fn parse_property_signature(&mut self) -> Result<Rc<dyn ast::Node>> {
+        // Save the property name position
+        let prop_pos = self.scanner.token_pos();
+
+        // Parse property name
+        let name = if self.token == Kind::Identifier {
+            let name_text = self.scanner.token_text().to_owned();
+            let identifier = Rc::new(ast::Identifier {
+                base: self.create_node_base(Kind::Identifier),
+                text: name_text,
+            });
+            self.next_token();
+            identifier
+        } else {
+            return Err(self.error(
+                DiagnosticCode::SyntaxError,
+                "Expected identifier as property name",
+            ));
+        };
+
+        // Expect ':'
+        if self.token != Kind::ColonToken {
+            return Err(self.error(
+                DiagnosticCode::SyntaxError,
+                "Expected ':' after property name",
+            ));
+        }
+        self.next_token();
+
+        // Parse property type
+        let type_annotation = self.parse_type()?;
+
+        // Create and return property signature node
+        let mut base = ast::NodeBase::new(Kind::PropertySignature);
+        let end_pos = self.scanner.pos();
+        base.set_pos(prop_pos, end_pos);
+
+        let property_signature = Rc::new(ast::PropertySignature {
+            base,
+            name,
+            type_annotation,
+        });
+
+        Ok(property_signature as Rc<dyn ast::Node>)
+    }
+
+    // This function was removed to resolve duplicate definition
+    // The implementation from lines ~601-754 is used instead
+
+    /// Parse a type literal (object type)
+    fn parse_type_literal(&mut self) -> Result<Rc<dyn ast::Node>> {
+        // Save start position
+        let start_pos = self.scanner.token_pos();
+
+        // Expect '{'
+        if self.token != Kind::OpenBraceToken {
+            return Err(self.error(
+                DiagnosticCode::SyntaxError,
+                "Expected '{' for object type literal",
+            ));
+        }
+        self.next_token();
+
+        // Parse members
+        let mut members = Vec::new();
+
+        while self.token != Kind::CloseBraceToken && self.token != Kind::EndOfFile {
+            let member = self.parse_property_signature()?;
+            members.push(member);
+
+            // Skip optional semicolon or comma
+            if self.token == Kind::SemicolonToken || self.token == Kind::CommaToken {
+                self.next_token();
+            }
+        }
+
+        // Expect '}'
+        if self.token != Kind::CloseBraceToken {
+            return Err(self.error(
+                DiagnosticCode::SyntaxError,
+                "Expected '}' to close object type literal",
+            ));
+        }
+        self.next_token();
+
+        // Create and return type literal node
+        let mut base = ast::NodeBase::new(Kind::TypeLiteral);
+        let end_pos = self.scanner.pos();
+        base.set_pos(start_pos, end_pos);
+
+        let type_literal = Rc::new(ast::TypeLiteral { base, members });
+
+        Ok(type_literal as Rc<dyn ast::Node>)
     }
 
     /// Parse a property assignment in an object literal

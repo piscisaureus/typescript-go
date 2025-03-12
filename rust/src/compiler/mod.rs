@@ -83,7 +83,76 @@ impl TypeChecker {
         }
     }
 
-    /// Helper method to create a diagnostic with proper location information
+    /// Check an object binding pattern against the initializer type
+    /// This validates that all properties in the pattern exist on the initializer type
+    fn check_object_binding_pattern(
+        &mut self,
+        context: &mut TypeContext,
+        pattern: &ast::ObjectBindingPattern,
+        init_type: &Type,
+    ) -> Result<()> {
+        // Extract properties from the initializer type
+        let properties = match init_type {
+            Type::Object(Some(props)) => props.clone(),
+            Type::Interface(_, props) => props.clone(),
+            _ => {
+                // Not an object type - error already reported
+                return Ok(());
+            }
+        };
+
+        // Check each binding element
+        for element in &pattern.elements {
+            // Get the property name from the pattern
+            let property_name = if let Some(prop_name) = &element.property_name {
+                // { x: y } form - property name is 'x'
+                prop_name.text.clone()
+            } else {
+                // { x } form - property name is same as binding name
+                element.name.text.clone()
+            };
+
+            // Check if property exists on the initializer type
+            if let Some((_, prop_type)) = properties.iter().find(|(name, _)| name == &property_name)
+            {
+                // Property exists, add the binding to the context
+                context.add_variable(element.name.text.clone(), prop_type.clone());
+
+                // If element has its own initializer, check type compatibility
+                if let Some(element_init) = &element.initializer {
+                    let init_type = self.check_expression(context, Rc::clone(element_init))?;
+
+                    if !self.is_assignable_to(&init_type, prop_type) {
+                        self.diagnostics.push(self.create_diagnostic(
+                            DiagnosticCode::TypeMismatch,
+                            format!(
+                                "Type '{}' is not assignable to type '{}'",
+                                self.format_type(&init_type),
+                                self.format_type(prop_type)
+                            ),
+                            element_init.pos(),
+                            element_init.end(),
+                        ));
+                    }
+                }
+            } else {
+                // Property doesn't exist on the type - report an error
+                self.diagnostics.push(self.create_diagnostic(
+                    DiagnosticCode::NonExistentProperty,
+                    format!(
+                        "Property '{}' does not exist on type '{}'",
+                        property_name,
+                        self.format_type(init_type)
+                    ),
+                    element.pos(),
+                    element.end(),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
     fn create_diagnostic(
         &self,
         code: DiagnosticCode,
@@ -203,12 +272,6 @@ impl TypeChecker {
         self.source_text = source_file.text.clone();
         self.file_name = source_file.file_name.clone();
 
-        // Create a type context for this source file
-        let mut context = TypeContext::new();
-
-        // Add built-in functions and types
-        self.add_built_ins(&mut context);
-
         // Build a line map from the source text for better location computation
         self.line_map = if source_file.line_map.is_empty() {
             // Build our own if the source file doesn't provide one
@@ -223,12 +286,62 @@ impl TypeChecker {
             source_file.line_map.clone()
         };
 
-        // First pass: Create context with function declarations
+        // Create a type context for this source file
+        let mut context = TypeContext::new();
+
+        // Add built-in functions and types
+        self.add_built_ins(&mut context);
+
+        // First pass: Register interfaces
+        self.register_interfaces(&mut context, &source_file)?;
+
+        // Second pass: Create context with function declarations
         self.register_declarations(&mut context, &source_file)?;
 
-        // Second pass: Check all statements
+        // Third pass: Check all statements
         for statement in &source_file.statements {
             self.check_statement(&mut context, Rc::clone(statement))?;
+        }
+
+        Ok(())
+    }
+
+    /// Register all interface declarations in the source file
+    fn register_interfaces(
+        &mut self,
+        context: &mut TypeContext,
+        source_file: &ast::SourceFile,
+    ) -> Result<()> {
+        // Register all interface declarations
+        for statement in &source_file.statements {
+            if statement.kind() == ast::Kind::InterfaceDeclaration {
+                if let Some(interface_decl) = statement
+                    .as_any()
+                    .downcast_ref::<ast::InterfaceDeclaration>()
+                {
+                    let interface_name = interface_decl.name.text.clone();
+                    let mut properties = Vec::new();
+
+                    // Extract properties from the interface
+                    for member in &interface_decl.members {
+                        if let Some(prop_sig) =
+                            member.as_any().downcast_ref::<ast::PropertySignature>()
+                        {
+                            let prop_name = prop_sig.name.text.clone();
+                            let prop_type =
+                                self.get_type_from_node(Rc::clone(&prop_sig.type_annotation))?;
+                            properties.push((prop_name, prop_type));
+                        }
+                    }
+
+                    // Add interface to type context
+                    context.add_interface(interface_name.clone(), properties.clone());
+
+                    // Also register it as a named type
+                    let interface_type = Type::Interface(interface_name, properties);
+                    context.add_type(interface_decl.name.text.clone(), interface_type);
+                }
+            }
         }
 
         Ok(())
@@ -293,6 +406,10 @@ impl TypeChecker {
         statement: Rc<dyn ast::Node>,
     ) -> Result<()> {
         match statement.kind() {
+            ast::Kind::InterfaceDeclaration => {
+                // Interface declarations are already handled in register_interfaces
+                // No need for additional checking here
+            }
             ast::Kind::FunctionDeclaration => {
                 // Downcast to FunctionDeclaration
                 if let Some(func_decl) = statement
@@ -392,7 +509,60 @@ impl TypeChecker {
                         .downcast_ref::<ast::VariableDeclarationList>()
                     {
                         for decl in &decl_list.declarations {
-                            // Determine variable type from type annotation or initializer
+                            // Check if this is a destructuring pattern
+                            if let Some(binding_pattern) = &decl.binding_name {
+                                // Handle object binding pattern (destructuring)
+                                if binding_pattern.kind() == ast::Kind::ObjectBindingPattern {
+                                    if let Some(obj_pattern) = binding_pattern
+                                        .as_any()
+                                        .downcast_ref::<ast::ObjectBindingPattern>(
+                                    ) {
+                                        // Object binding patterns must have an initializer
+                                        if let Some(initializer) = &decl.initializer {
+                                            // Get type of the initializer
+                                            let init_type = self.check_expression(
+                                                context,
+                                                Rc::clone(initializer),
+                                            )?;
+
+                                            // Check if the initializer has an object-like type
+                                            match &init_type {
+                                                Type::Object(_) | Type::Interface(_, _) => {
+                                                    // Process the object binding pattern
+                                                    self.check_object_binding_pattern(
+                                                        context,
+                                                        obj_pattern,
+                                                        &init_type,
+                                                    )?;
+                                                }
+                                                _ => {
+                                                    // Invalid type for object destructuring
+                                                    self.diagnostics.push(self.create_diagnostic(
+                                                        DiagnosticCode::TypeMismatch,
+                                                        format!("Cannot destructure type '{}' as it is not an object type", self.format_type(&init_type)),
+                                                        initializer.pos(),
+                                                        initializer.end(),
+                                                    ));
+                                                }
+                                            }
+
+                                            // Continue to next declaration
+                                            continue;
+                                        } else {
+                                            // Error: Destructuring declarations require initializers
+                                            self.diagnostics.push(self.create_diagnostic(
+                                                DiagnosticCode::SyntaxError,
+                                                "Object destructuring patterns require an initializer".to_string(),
+                                                binding_pattern.pos(),
+                                                binding_pattern.end(),
+                                            ));
+                                            continue;
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Regular variable declaration (not destructuring)
                             let mut var_type = Type::Any;
 
                             // Check type annotation if present
@@ -404,21 +574,268 @@ impl TypeChecker {
                             if let Some(init) = &decl.initializer {
                                 let init_type = self.check_expression(context, Rc::clone(init))?;
 
-                                // If we have both a type annotation and initializer, verify compatibility
-                                if decl.type_annotation.is_some()
-                                    && !self.is_assignable_to(&init_type, &var_type)
+                                // Special handling for object literals assigned to interfaces
+                                if let (
+                                    Type::Object(Some(init_props)),
+                                    Type::Interface(interface_name, interface_props),
+                                ) = (&init_type, &var_type)
                                 {
-                                    self.diagnostics.push(self.create_diagnostic(
-                                        DiagnosticCode::TypeMismatch,
-                                        format!(
-                                            "Type {:?} is not assignable to type {:?}",
-                                            init_type, var_type
-                                        ),
-                                        init.pos(),
-                                        init.end(),
-                                    ));
+                                    // Check for missing required properties
+                                    for (prop_name, _) in interface_props {
+                                        if !init_props.iter().any(|(name, _)| name == prop_name) {
+                                            // Report missing property
+                                            self.diagnostics.push(self.create_diagnostic(
+                                                DiagnosticCode::MissingProperty,
+                                                format!(
+                                                    "Property '{}' is missing in type '{{ {} }}' but required in type '{}'",
+                                                    prop_name,
+                                                    init_props.iter()
+                                                        .map(|(name, typ)| format!("{}: {}", name, self.format_type(typ)))
+                                                        .collect::<Vec<_>>()
+                                                        .join("; "),
+                                                    interface_name
+                                                ),
+                                                init.pos(),
+                                                init.end(),
+                                            ));
+                                        }
+                                    }
+
+                                    // Check for excess properties
+                                    for (prop_name, _) in init_props {
+                                        if !interface_props
+                                            .iter()
+                                            .any(|(name, _)| name == prop_name)
+                                        {
+                                            // Report excess property
+                                            self.diagnostics.push(self.create_diagnostic(
+                                                DiagnosticCode::ExtraProperty,
+                                                format!(
+                                                    "Object literal may only specify known properties, and '{}' does not exist in type '{}'",
+                                                    prop_name,
+                                                    interface_name
+                                                ),
+                                                init.pos(),
+                                                init.end(),
+                                            ));
+                                        }
+                                    }
+
+                                    // Check property type compatibility
+                                    for (init_name, init_type) in init_props {
+                                        if let Some((_, interface_type)) = interface_props
+                                            .iter()
+                                            .find(|(name, _)| name == init_name)
+                                        {
+                                            if !self.is_assignable_to(init_type, interface_type) {
+                                                // Report type mismatch for property
+                                                self.diagnostics.push(self.create_diagnostic(
+                                                    DiagnosticCode::PropertyTypeMismatch,
+                                                    format!(
+                                                        "Type '{}' is not assignable to type '{}'",
+                                                        self.format_type(init_type),
+                                                        self.format_type(interface_type)
+                                                    ),
+                                                    init.pos(),
+                                                    init.end(),
+                                                ));
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // If we have both a type annotation and initializer, verify compatibility
+                                if decl.type_annotation.is_some() {
+                                    if !self.is_assignable_to(&init_type, &var_type) {
+                                        // Special handling for object type errors
+                                        match (&init_type, &var_type) {
+                                            (
+                                                Type::Object(Some(init_props)),
+                                                Type::Interface(interface_name, target_props),
+                                            ) => {
+                                                // Check for missing properties
+                                                let mut missing_props = Vec::new();
+                                                for (target_name, _) in target_props {
+                                                    if !init_props
+                                                        .iter()
+                                                        .any(|(name, _)| name == target_name)
+                                                    {
+                                                        missing_props.push(target_name.clone());
+                                                    }
+                                                }
+
+                                                if !missing_props.is_empty() {
+                                                    // We'll report just one missing property at a time, following Deno's behavior
+                                                    let missing_prop = &missing_props[0];
+
+                                                    // Format the object type as a string representation
+                                                    let obj_type_str = format!(
+                                                        "{{ {} }}",
+                                                        init_props
+                                                            .iter()
+                                                            .map(|(name, typ)| format!(
+                                                                "{}: {};",
+                                                                name,
+                                                                self.format_type(typ)
+                                                            ))
+                                                            .collect::<Vec<_>>()
+                                                            .join(" ")
+                                                    );
+
+                                                    // Report missing property
+                                                    self.diagnostics.push(self.create_diagnostic(
+                                                        DiagnosticCode::MissingProperty,
+                                                        format!(
+                                                            "Property '{}' is missing in type '{}' but required in type '{}'",
+                                                            missing_prop,
+                                                            obj_type_str,
+                                                            interface_name
+                                                        ),
+                                                        init.pos(),
+                                                        init.end(),
+                                                    ));
+                                                }
+
+                                                // Check for type mismatches in properties
+                                                for (init_name, init_prop_type) in init_props {
+                                                    if let Some((_, target_prop_type)) =
+                                                        target_props
+                                                            .iter()
+                                                            .find(|(name, _)| name == init_name)
+                                                    {
+                                                        if !self.is_assignable_to(
+                                                            init_prop_type,
+                                                            target_prop_type,
+                                                        ) {
+                                                            // Find the position of the property value in the object literal
+                                                            let property_start = self.source_text
+                                                                [..init.end()]
+                                                                .rfind(init_name)
+                                                                .unwrap_or(init.pos());
+                                                            let value_start = self.source_text
+                                                                [property_start..init.end()]
+                                                                .find(':')
+                                                                .map(|pos| property_start + pos + 1)
+                                                                .unwrap_or(init.pos());
+                                                            let value_end = if let Some(pos) = self
+                                                                .source_text
+                                                                [value_start..init.end()]
+                                                                .find(',')
+                                                            {
+                                                                value_start + pos
+                                                            } else {
+                                                                init.end() - 1
+                                                            };
+
+                                                            // Report property type mismatch - Format like Deno
+                                                            self.diagnostics.push(self.create_diagnostic(
+                                                                DiagnosticCode::PropertyTypeMismatch,
+                                                                format!(
+                                                                    "Type '{}' is not assignable to type '{}'",
+                                                                    self.format_type(init_prop_type), self.format_type(target_prop_type)
+                                                                ),
+                                                                value_start,
+                                                                value_end,
+                                                            ));
+                                                        }
+                                                    } else if !target_props
+                                                        .iter()
+                                                        .any(|(name, _)| name == init_name)
+                                                    {
+                                                        // Find the position of the extra property in the object literal
+                                                        let property_start = self.source_text
+                                                            [..init.end()]
+                                                            .rfind(init_name)
+                                                            .unwrap_or(init.pos());
+                                                        let property_end = if let Some(pos) = self
+                                                            .source_text
+                                                            [property_start..init.end()]
+                                                            .find(',')
+                                                        {
+                                                            property_start + pos
+                                                        } else {
+                                                            init.end() - 1
+                                                        };
+
+                                                        // Report extra property (not in target interface)
+                                                        self.diagnostics.push(self.create_diagnostic(
+                                                            DiagnosticCode::ExtraProperty,
+                                                            format!(
+                                                                "Object literal may only specify known properties, and '{}' does not exist in type '{}'",
+                                                                init_name, interface_name
+                                                            ),
+                                                            property_start,
+                                                            property_end,
+                                                        ));
+                                                    }
+                                                }
+                                            }
+                                            (
+                                                Type::Object(Some(init_props)),
+                                                Type::Object(Some(target_props)),
+                                            ) => {
+                                                // Similar checks for object to object assignment
+                                                // Check for missing properties
+                                                for (target_name, _) in target_props {
+                                                    if !init_props
+                                                        .iter()
+                                                        .any(|(name, _)| name == target_name)
+                                                    {
+                                                        self.diagnostics.push(
+                                                            self.create_diagnostic(
+                                                                DiagnosticCode::MissingProperty,
+                                                                format!(
+                                                                "Property '{}' is missing in type",
+                                                                target_name
+                                                            ),
+                                                                init.pos(),
+                                                                init.end(),
+                                                            ),
+                                                        );
+                                                    }
+                                                }
+
+                                                // Check for type mismatches
+                                                for (init_name, init_prop_type) in init_props {
+                                                    if let Some((_, target_prop_type)) =
+                                                        target_props
+                                                            .iter()
+                                                            .find(|(name, _)| name == init_name)
+                                                    {
+                                                        if !self.is_assignable_to(
+                                                            init_prop_type,
+                                                            target_prop_type,
+                                                        ) {
+                                                            self.diagnostics.push(self.create_diagnostic(
+                                                                DiagnosticCode::PropertyTypeMismatch,
+                                                                format!(
+                                                                    "Type '{}' is not assignable to type '{}' for property '{}'",
+                                                                    self.format_type(init_prop_type), self.format_type(target_prop_type), init_name
+                                                                ),
+                                                                init.pos(),
+                                                                init.end(),
+                                                            ));
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            _ => {
+                                                // General type mismatch error
+                                                self.diagnostics.push(self.create_diagnostic(
+                                                    DiagnosticCode::TypeMismatch,
+                                                    format!(
+                                                        "Type '{}' is not assignable to type '{}'",
+                                                        self.format_type(&init_type),
+                                                        self.format_type(&var_type)
+                                                    ),
+                                                    init.pos(),
+                                                    init.end(),
+                                                ));
+                                            }
+                                        }
+                                    }
                                     // Keep using the annotated type even if initializer doesn't match
-                                } else if decl.type_annotation.is_none() {
+                                } else {
                                     // Infer type from initializer if no type annotation
                                     var_type = init_type;
                                 }
@@ -519,18 +936,80 @@ impl TypeChecker {
                     }
 
                     // Check for object type properties
-                    if let Type::Object(Some(props)) = &obj_type {
-                        // Look for property in props
-                        if let Some((_, prop_type)) =
-                            props.iter().find(|(name, _)| name == prop_name)
-                        {
-                            return Ok(prop_type.clone());
+                    match &obj_type {
+                        Type::Object(Some(props)) => {
+                            // Look for property in props
+                            if let Some((_, prop_type)) =
+                                props.iter().find(|(name, _)| name == prop_name)
+                            {
+                                return Ok(prop_type.clone());
+                            } else {
+                                // Property not found in object
+                                self.diagnostics.push(self.create_diagnostic(
+                                    DiagnosticCode::NonExistentProperty,
+                                    format!(
+                                        "Property '{}' does not exist on type '{}'",
+                                        prop_name,
+                                        self.format_type(&obj_type)
+                                    ),
+                                    prop_access.name.pos(),
+                                    prop_access.name.end(),
+                                ));
+                                // Continue to allow checking for more errors
+                                return Ok(Type::Error);
+                            }
+                        }
+                        Type::Interface(interface_name, props) => {
+                            // Look for property in interface
+                            if let Some((_, prop_type)) =
+                                props.iter().find(|(name, _)| name == prop_name)
+                            {
+                                return Ok(prop_type.clone());
+                            } else {
+                                // Property not found in interface
+                                self.diagnostics.push(self.create_diagnostic(
+                                    DiagnosticCode::NonExistentProperty,
+                                    format!(
+                                        "Property '{}' does not exist on type '{}'",
+                                        prop_name, interface_name
+                                    ),
+                                    prop_access.name.pos(),
+                                    prop_access.name.end(),
+                                ));
+                                // Continue to allow checking for more errors
+                                return Ok(Type::Error);
+                            }
+                        }
+                        Type::Number => {
+                            // Numbers don't have properties except for some standard ones
+                            if prop_name == "toLowerCase" {
+                                // Special case for the "toLowerCase" method test case
+                                self.diagnostics.push(self.create_diagnostic(
+                                    DiagnosticCode::InvalidMethodCall,
+                                    format!(
+                                        "Property 'toLowerCase' does not exist on type 'number'"
+                                    ),
+                                    prop_access.name.pos(),
+                                    prop_access.name.end(),
+                                ));
+                            } else {
+                                self.diagnostics.push(self.create_diagnostic(
+                                    DiagnosticCode::InvalidMethodCall,
+                                    format!(
+                                        "Property '{}' does not exist on type 'number'",
+                                        prop_name
+                                    ),
+                                    prop_access.name.pos(),
+                                    prop_access.name.end(),
+                                ));
+                            }
+                            return Ok(Type::Error);
+                        }
+                        _ => {
+                            // For other types, we'll just return Any for now
+                            return Ok(Type::Any);
                         }
                     }
-
-                    // Default handling - we don't have full property information yet
-                    // In a real implementation, we'd look up properties based on the object type
-                    return Ok(Type::Any);
                 }
 
                 return Ok(Type::Error);
@@ -556,22 +1035,40 @@ impl TypeChecker {
                                 if let Some(signature) = context.get_function(&ident.text) {
                                     // Check argument count
                                     if call_expr.arguments.len() != signature.parameters.len() {
-                                        // Create diagnostic with proper location info
-                                        self.diagnostics.push(self.create_diagnostic(
-                                            DiagnosticCode::ArgumentCountMismatch,
+                                        // Format Deno-style error message
+                                        let msg = if call_expr.arguments.len()
+                                            < signature.parameters.len()
+                                        {
                                             format!(
-                                                "Expected {} arguments but got {}",
+                                                "Expected {} arguments, but got {}",
                                                 signature.parameters.len(),
                                                 call_expr.arguments.len()
-                                            ),
+                                            )
+                                        } else {
+                                            format!(
+                                                "Expected {} arguments, but got {}",
+                                                signature.parameters.len(),
+                                                call_expr.arguments.len()
+                                            )
+                                        };
+
+                                        // Create diagnostic with proper location info
+                                        let diag = self.create_diagnostic(
+                                            DiagnosticCode::ArgumentCountMismatch,
+                                            msg,
                                             call_expr.pos(),
                                             call_expr.end(),
-                                        ));
-                                        return Ok(Type::Error);
+                                        );
+                                        self.diagnostics.push(diag);
                                     }
 
-                                    // Check each argument type
-                                    for (i, arg) in call_expr.arguments.iter().enumerate() {
+                                    // Check each argument type, but only up to the minimum of arguments provided and parameters expected
+                                    let param_count = signature.parameters.len();
+                                    let arg_count = call_expr.arguments.len();
+                                    let check_count = std::cmp::min(param_count, arg_count);
+
+                                    for i in 0..check_count {
+                                        let arg = &call_expr.arguments[i];
                                         let arg_type =
                                             self.check_expression(context, Rc::clone(arg))?;
                                         let expected_type = &signature.parameters[i];
@@ -580,14 +1077,14 @@ impl TypeChecker {
                                             self.diagnostics.push(self.create_diagnostic(
                                                 DiagnosticCode::TypeMismatch,
                                                 format!(
-                                                    "Argument of type {:?} is not assignable to parameter of type {:?}",
-                                                    arg_type,
-                                                    expected_type
+                                                    "Argument of type '{}' is not assignable to parameter of type '{}'",
+                                                    self.format_type(&arg_type),
+                                                    self.format_type(expected_type)
                                                 ),
                                                 arg.pos(),
                                                 arg.end(),
                                             ));
-                                            return Ok(Type::Error);
+                                            // Don't return early, continue checking other arguments
                                         }
                                     }
 
@@ -600,6 +1097,7 @@ impl TypeChecker {
                                         func_expr.pos(),
                                         func_expr.end(),
                                     ));
+                                    // Continue to check for other errors
                                     return Ok(Type::Error);
                                 }
                             }
@@ -619,11 +1117,15 @@ impl TypeChecker {
                                         call_expr.pos(),
                                         call_expr.end(),
                                     ));
-                                    return Ok(Type::Error);
                                 }
 
-                                // Check each argument
-                                for (i, arg) in call_expr.arguments.iter().enumerate() {
+                                // Check each argument, but only up to the minimum of arguments provided and parameters expected
+                                let param_count = signature.parameters.len();
+                                let arg_count = call_expr.arguments.len();
+                                let check_count = std::cmp::min(param_count, arg_count);
+
+                                for i in 0..check_count {
+                                    let arg = &call_expr.arguments[i];
                                     let arg_type =
                                         self.check_expression(context, Rc::clone(arg))?;
                                     let expected_type = &signature.parameters[i];
@@ -632,14 +1134,14 @@ impl TypeChecker {
                                         self.diagnostics.push(self.create_diagnostic(
                                             DiagnosticCode::TypeMismatch,
                                             format!(
-                                                "Argument of type {:?} is not assignable to parameter of type {:?}",
-                                                arg_type,
-                                                expected_type
+                                                "Argument of type '{}' is not assignable to parameter of type '{}'",
+                                                self.format_type(&arg_type),
+                                                self.format_type(expected_type)
                                             ),
                                             arg.pos(),
                                             arg.end(),
                                         ));
-                                        return Ok(Type::Error);
+                                        // Don't return early, continue checking other arguments
                                     }
                                 }
 
@@ -657,6 +1159,7 @@ impl TypeChecker {
                         func_expr.pos(),
                         func_expr.end(),
                     ));
+                    // Continue to check for other errors
                     return Ok(Type::Error);
                 }
             }
@@ -681,12 +1184,14 @@ impl TypeChecker {
                             self.diagnostics.push(self.create_diagnostic(
                                 DiagnosticCode::InvalidBinaryOperation,
                                 format!(
-                                    "Operator '+' cannot be applied to types {:?} and {:?}",
-                                    left_type, right_type
+                                    "Operator '+' cannot be applied to types '{}' and '{}'",
+                                    self.format_type(&left_type),
+                                    self.format_type(&right_type)
                                 ),
                                 binary_expr.pos(),
                                 binary_expr.end(),
                             ));
+                            // Continue to check for other errors
                             return Ok(Type::Error);
                         }
                     }
@@ -701,6 +1206,7 @@ impl TypeChecker {
                         binary_expr.pos(),
                         binary_expr.end(),
                     ));
+                    // Continue to check for other errors
                     return Ok(Type::Error);
                 }
             }
@@ -727,6 +1233,7 @@ impl TypeChecker {
                             ident.pos(),
                             ident.end(),
                         ));
+                        // Continue to check for other errors
                         return Ok(Type::Error);
                     }
                 }
@@ -885,9 +1392,49 @@ impl TypeChecker {
         }
     }
 
+    /// Format a type as a string for error messages
+    /// This produces more readable type names for diagnostics
+    fn format_type(&self, typ: &Type) -> String {
+        match typ {
+            Type::Any => "any".to_string(),
+            Type::Error => "error".to_string(),
+            Type::String => "string".to_string(),
+            Type::Number => "number".to_string(),
+            Type::Boolean => "boolean".to_string(),
+            Type::Void => "void".to_string(),
+            Type::Undefined => "undefined".to_string(),
+            Type::Null => "null".to_string(),
+            Type::Array(elem_type) => format!("{}[]", self.format_type(elem_type)),
+            Type::Object(None) => "{}".to_string(),
+            Type::Object(Some(props)) => {
+                if props.is_empty() {
+                    "{}".to_string()
+                } else {
+                    let properties = props
+                        .iter()
+                        .map(|(name, typ)| format!("{}: {}", name, self.format_type(typ)))
+                        .collect::<Vec<_>>()
+                        .join("; ");
+                    format!("{{ {} }}", properties)
+                }
+            }
+            Type::Interface(name, _) => name.clone(),
+            Type::Function(signature) => {
+                let params = signature
+                    .parameters
+                    .iter()
+                    .map(|param| self.format_type(param))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let return_type = self.format_type(&signature.return_type);
+                format!("({}) => {}", params, return_type)
+            }
+        }
+    }
+
     /// Check if source_type is assignable to target_type
     /// Corresponds to isAssignableTo in internal/checker/checker.go
-    /// Extended to handle object types and object compatibility
+    /// Extended to handle object types, interfaces, and object compatibility
     fn is_assignable_to(&self, source_type: &Type, target_type: &Type) -> bool {
         // Any is assignable to and from anything
         if *source_type == Type::Any || *target_type == Type::Any {
@@ -906,6 +1453,7 @@ impl TypeChecker {
 
         // Handle arrays and objects
         match (source_type, target_type) {
+            // Array type compatibility
             (Type::Array(src_elem_type), Type::Array(tgt_elem_type)) => {
                 // Check element type compatibility
                 self.is_assignable_to(src_elem_type, tgt_elem_type)
@@ -913,6 +1461,32 @@ impl TypeChecker {
 
             // Object to array is not assignable
             (Type::Object(_), Type::Array(_)) => false,
+
+            // Object to interface
+            (Type::Object(src_props), Type::Interface(_, interface_props)) => {
+                match src_props {
+                    // Empty object cannot be assigned to an interface that requires properties
+                    None => interface_props.is_empty(),
+
+                    // Check if the object has all required interface properties
+                    Some(props) => {
+                        for (iface_prop_name, iface_prop_type) in interface_props {
+                            let matching_prop =
+                                props.iter().find(|(name, _)| name == iface_prop_name);
+
+                            match matching_prop {
+                                Some((_, prop_type)) => {
+                                    if !self.is_assignable_to(prop_type, &iface_prop_type) {
+                                        return false; // Property type doesn't match interface requirement
+                                    }
+                                }
+                                None => return false, // Required interface property missing
+                            }
+                        }
+                        true
+                    }
+                }
+            }
 
             // Empty object can be assigned to any object type
             (Type::Object(None), Type::Object(_)) => true,
@@ -926,7 +1500,7 @@ impl TypeChecker {
                     match matching_src_prop {
                         Some((_, src_type)) => {
                             if !self.is_assignable_to(src_type, tgt_type) {
-                                return false;
+                                return false; // Property type mismatch
                             }
                         }
                         None => return false, // Required property missing
@@ -938,15 +1512,58 @@ impl TypeChecker {
             // Object to empty object
             (Type::Object(_), Type::Object(None)) => true,
 
+            // Interface to interface
+            (Type::Interface(_, src_props), Type::Interface(_, tgt_props)) => {
+                // Check if source interface has all properties of target interface
+                for (tgt_name, tgt_type) in tgt_props {
+                    let matching_src_prop = src_props.iter().find(|(name, _)| name == tgt_name);
+
+                    match matching_src_prop {
+                        Some((_, src_type)) => {
+                            if !self.is_assignable_to(src_type, tgt_type) {
+                                return false;
+                            }
+                        }
+                        None => return false, // Target interface requires a property not in source
+                    }
+                }
+                true
+            }
+
+            // Interface to object
+            (Type::Interface(_, interface_props), Type::Object(obj_props)) => {
+                match obj_props {
+                    // Interface to empty object - only valid if interface has no required props
+                    None => interface_props.is_empty(),
+
+                    // Interface to object with properties
+                    Some(props) => {
+                        // Check if interface satisfies all required object properties
+                        for (obj_prop_name, obj_prop_type) in props {
+                            let matching_prop = interface_props
+                                .iter()
+                                .find(|(name, _)| name == obj_prop_name);
+
+                            match matching_prop {
+                                Some((_, prop_type)) => {
+                                    if !self.is_assignable_to(prop_type, &obj_prop_type) {
+                                        return false;
+                                    }
+                                }
+                                None => return false, // Interface doesn't have required property
+                            }
+                        }
+                        true
+                    }
+                }
+            }
+
             // In TypeScript, numbers can be coerced to strings during string concatenation,
             // but a Number type is not assignable to a String parameter
             (Type::Number, Type::String) => false,
 
             // Similarly, booleans are not assignable to strings in TypeScript
             (Type::Boolean, Type::String) => false,
-
-            // Add more special cases as needed
-            // ...
 
             // By default, different types are not assignable
             _ => false,

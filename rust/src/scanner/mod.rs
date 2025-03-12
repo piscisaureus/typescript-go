@@ -33,6 +33,7 @@ fn get_text_to_keyword() -> &'static HashMap<&'static str, Kind> {
         map.insert("number", Kind::NumberKeyword);
         map.insert("true", Kind::TrueKeyword);
         map.insert("false", Kind::FalseKeyword);
+        map.insert("interface", Kind::InterfaceKeyword);
         // Add more keywords as needed to match Go implementation
         map
     })

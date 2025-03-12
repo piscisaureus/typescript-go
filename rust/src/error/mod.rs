@@ -28,6 +28,11 @@ pub enum DiagnosticCode {
     UnsupportedExpression,
     MissingSemicolon,
     UnterminatedString,
+    MissingProperty,
+    ExtraProperty,
+    PropertyTypeMismatch,
+    NonExistentProperty,
+    InvalidMethodCall,
     // Add more specific error codes as needed
 }
 
@@ -43,6 +48,13 @@ pub struct Diagnostic {
     pub line: usize,
     pub column: usize,
     pub severity: DiagnosticSeverity,
+}
+
+impl Diagnostic {
+    // Accessor for end position (pos + len)
+    pub fn end(&self) -> usize {
+        self.pos + self.len
+    }
 }
 
 impl Diagnostic {

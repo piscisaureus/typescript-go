@@ -672,6 +672,39 @@ impl Node for TypeLiteral {
     }
 }
 
+/// Represents an interface declaration (e.g. interface User {...})
+/// In Go, this corresponds to InterfaceDeclaration
+#[derive(Debug, Clone)]
+pub struct InterfaceDeclaration {
+    pub base: NodeBase,
+    pub name: Rc<Identifier>,
+    pub members: Vec<Rc<dyn Node>>,
+}
+
+impl Node for InterfaceDeclaration {
+    fn kind(&self) -> Kind {
+        self.base.kind()
+    }
+    fn flags(&self) -> NodeFlags {
+        self.base.flags()
+    }
+    fn pos(&self) -> usize {
+        self.base.pos()
+    }
+    fn end(&self) -> usize {
+        self.base.end()
+    }
+    fn loc(&self) -> TextRange {
+        self.base.loc()
+    }
+    fn set_flags(&mut self, flags: NodeFlags) {
+        self.base.set_flags(flags)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
 /// Represents a property access expression (e.g. obj.prop)
 /// In Go, this is the PropertyAccessExpression struct
 #[derive(Debug, Clone)]
@@ -805,15 +838,83 @@ impl Node for ObjectLiteralExpression {
 
 /// Represents a variable declaration (e.g. 'var x = 5', 'let y = "hello"', 'const z = true')
 /// In Go, this is the VariableDeclaration struct
+/// Enhanced to support destructuring patterns with binding_name vs. name
 #[derive(Debug, Clone)]
 pub struct VariableDeclaration {
     pub base: NodeBase,
-    pub name: Rc<Identifier>,
+    pub name: Rc<Identifier>, // Kept for simple variable declarations
+    pub binding_name: Option<Rc<dyn Node>>, // For destructuring patterns
     pub initializer: Option<Rc<dyn Node>>,
     pub type_annotation: Option<Rc<dyn Node>>,
 }
 
 impl Node for VariableDeclaration {
+    fn kind(&self) -> Kind {
+        self.base.kind()
+    }
+    fn flags(&self) -> NodeFlags {
+        self.base.flags()
+    }
+    fn pos(&self) -> usize {
+        self.base.pos()
+    }
+    fn end(&self) -> usize {
+        self.base.end()
+    }
+    fn loc(&self) -> TextRange {
+        self.base.loc()
+    }
+    fn set_flags(&mut self, flags: NodeFlags) {
+        self.base.set_flags(flags)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+/// Represents an object binding pattern (destructuring) like {a, b, c} = obj
+/// In Go, this would be ObjectBindingPattern
+#[derive(Debug, Clone)]
+pub struct ObjectBindingPattern {
+    pub base: NodeBase,
+    pub elements: Vec<Rc<BindingElement>>,
+}
+
+impl Node for ObjectBindingPattern {
+    fn kind(&self) -> Kind {
+        self.base.kind()
+    }
+    fn flags(&self) -> NodeFlags {
+        self.base.flags()
+    }
+    fn pos(&self) -> usize {
+        self.base.pos()
+    }
+    fn end(&self) -> usize {
+        self.base.end()
+    }
+    fn loc(&self) -> TextRange {
+        self.base.loc()
+    }
+    fn set_flags(&mut self, flags: NodeFlags) {
+        self.base.set_flags(flags)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+/// Represents a binding element in an object or array binding pattern
+/// In Go, this would be BindingElement
+#[derive(Debug, Clone)]
+pub struct BindingElement {
+    pub base: NodeBase,
+    pub name: Rc<Identifier>,
+    pub property_name: Option<Rc<Identifier>>, // For renamed bindings like { prop: localName }
+    pub initializer: Option<Rc<dyn Node>>,     // For default values
+}
+
+impl Node for BindingElement {
     fn kind(&self) -> Kind {
         self.base.kind()
     }

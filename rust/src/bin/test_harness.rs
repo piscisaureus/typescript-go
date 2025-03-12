@@ -4,9 +4,11 @@
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use std::rc::Rc;
 use std::time::Instant;
 
 // Import from our main crate
+use typescript_rust::ast;
 use typescript_rust::compiler;
 use typescript_rust::error::Diagnostic;
 use typescript_rust::parser;
@@ -119,7 +121,7 @@ fn run_rust_compiler(file_path: &Path) -> Vec<Diagnostic> {
     let source_file = match parser::parse_source_file(&file_name, &source_text) {
         Ok(source_file) => source_file,
         Err(e) => {
-            // Return the error as a diagnostic, ensuring it has file info
+            // Return the error as a diagnostic
             let diagnostic = e.with_file(&file_name).with_source_text(&source_text);
             return vec![diagnostic];
         }
