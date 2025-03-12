@@ -78,8 +78,11 @@ impl TypeChecker {
     }
 
     /// Initialize with built-in functions and types
+    /// Corresponds to scope.initializeBuiltins in internal/checker/scope.go
+    /// Extended with console object support which isn't in the Go implementation
     fn add_built_ins(&self, context: &mut TypeContext) {
         // Add the String function that converts values to strings
+        // Similar to Go's String() builtin
         let string_params = vec![Type::Any];
         let string_signature = FunctionSignature {
             parameters: string_params,
@@ -88,6 +91,7 @@ impl TypeChecker {
         context.add_function("String".to_string(), string_signature);
 
         // Add the console object for logging
+        // Note: This is not in the Go implementation, added for testing purposes
         let log_signature = FunctionSignature {
             parameters: vec![Type::Any], // console.log can take any arguments
             return_type: Type::Any,
@@ -346,6 +350,8 @@ impl TypeChecker {
         match expression.kind() {
             ast::Kind::FunctionExpression => {
                 // Handle function expressions (e.g., function(n) { return n + 1; })
+                // Corresponds to checking FunctionExpression in internal/checker/checker.go
+                // But our implementation is simplified since we don't check the function body
                 if let Some(func_expr) = expression
                     .as_any()
                     .downcast_ref::<ast::FunctionExpression>()
@@ -375,6 +381,7 @@ impl TypeChecker {
                     };
 
                     // Don't check function body for now, just return function type
+                    // Note: The Go implementation would check the function body here
                     return Ok(Type::Function(Box::new(signature)));
                 }
 
@@ -709,6 +716,8 @@ impl TypeChecker {
     }
 
     /// Get a Type from a node representing a type annotation
+    /// Corresponds to various type creation functions in internal/checker/types.go
+    /// Extended with additional type handling including object type literals
     fn get_type_from_node(&self, node: Rc<dyn ast::Node>) -> Result<Type> {
         match node.kind() {
             ast::Kind::TypeReference => {
@@ -739,6 +748,9 @@ impl TypeChecker {
                 }
             }
             ast::Kind::TypeLiteral => {
+                // Handle object type literals: { name: string; age: number }
+                // In Go, object types are handled differently through ObjectType and PropertySignature
+                // Our implementation uses a simpler approach with TypeLiteral and property maps
                 if let Some(type_lit) = node.as_any().downcast_ref::<ast::TypeLiteral>() {
                     let mut props = Vec::new();
 
@@ -768,6 +780,8 @@ impl TypeChecker {
     }
 
     /// Check if source_type is assignable to target_type
+    /// Corresponds to isAssignableTo in internal/checker/checker.go
+    /// Extended to handle object types and object compatibility
     fn is_assignable_to(&self, source_type: &Type, target_type: &Type) -> bool {
         // Any is assignable to and from anything
         if *source_type == Type::Any || *target_type == Type::Any {

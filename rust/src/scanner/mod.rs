@@ -158,6 +158,8 @@ impl Scanner {
             ']' => self.token = Kind::CloseBracketToken,
             '.' => {
                 // Check for ellipsis/spread operator ('...')
+                // Corresponds to scan() in internal/scanner/scanner.go
+                // but our implementation directly handles '...' while Go uses token sequences
                 if self.char() == '.' {
                     self.next_char();
                     if self.char() == '.' {

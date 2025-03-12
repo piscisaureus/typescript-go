@@ -543,7 +543,8 @@ impl Parser {
     }
 
     /// Parse a type annotation
-    /// Can be a simple type (string, number), an array type, or an object type
+    /// Corresponds to parts of parseTypeReference and parseType in internal/parser/parser.go
+    /// Extended to handle object type literals which is implemented differently in the Go version
     fn parse_type(&mut self) -> Result<Rc<dyn ast::Node>> {
         println!("  Parsing type, token: {:?}", self.token); // DEBUG
 
@@ -1134,11 +1135,13 @@ impl Parser {
     }
 
     /// Parse a property assignment in an object literal
-    /// Corresponds to parsePropertyAssignment in Go
+    /// Corresponds to parsePropertyAssignment in internal/parser/parser.go
+    /// Extended with spread operator (...) support which is handled differently in Go
     fn parse_property_assignment(&mut self) -> Result<Rc<dyn ast::Node>> {
         println!("Parsing property assignment, token: {:?}", self.token); // DEBUG
 
         // Check for spread operator (...)
+        // Note: The Go implementation handles this through a separate parseSpreadAssignment function
         if self.token == Kind::DotDotDotToken {
             println!("Found spread operator"); // DEBUG
             self.next_token();

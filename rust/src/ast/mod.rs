@@ -498,7 +498,9 @@ pub struct FunctionDeclaration {
 }
 
 /// Represents a function expression (anonymous function)
-/// Similar to FunctionDeclaration but used in expression contexts
+/// In Go, this is similar to FunctionExpression in internal/ast/ast.go
+/// Note: The Go implementation uses a single FunctionLikeDeclarationBase for both
+/// function declarations and expressions, but we use separate types for clarity
 #[derive(Debug, Clone)]
 pub struct FunctionExpression {
     pub base: NodeBase,
@@ -592,7 +594,8 @@ impl Node for TypeReference {
 }
 
 /// Represents a property in a type literal
-/// Like PropertySignature in TypeScript
+/// In Go, this is similar to PropertySignature in internal/ast/ast.go
+/// Used for object type literals in parameter and return type annotations
 #[derive(Debug, Clone)]
 pub struct PropertySignature {
     pub base: NodeBase,
@@ -625,7 +628,9 @@ impl Node for PropertySignature {
 }
 
 /// Represents an object type literal (e.g. { prop: Type })
-/// Like TypeLiteralNode in TypeScript
+/// In Go, this is similar to TypeLiteralNode in internal/ast/ast.go 
+/// The Go implementation handles this through ObjectType, but we use TypeLiteral
+/// to better match TypeScript's AST terminology
 #[derive(Debug, Clone)]
 pub struct TypeLiteral {
     pub base: NodeBase,
@@ -723,7 +728,8 @@ impl Node for PropertyAssignment {
 }
 
 /// Represents a spread assignment in an object literal (e.g. ...obj)
-/// This enables object spread syntax
+/// In Go, this is similar to SpreadAssignment in internal/ast/ast.go
+/// This enables the object spread syntax introduced in ES2018/TypeScript 2.1+
 #[derive(Debug, Clone)]
 pub struct SpreadAssignment {
     pub base: NodeBase,
