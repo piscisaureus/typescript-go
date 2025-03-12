@@ -508,6 +508,18 @@ impl Scanner {
         (self.token_flags & 1) != 0
     }
 
+    /// Get the current line number (1-based)
+    /// Corresponds to getLinePos in the Go code
+    pub fn get_line_number(&self) -> usize {
+        self.line + 1 // Convert to 1-based line number
+    }
+
+    /// Get the current column number (1-based)
+    /// Corresponds to getColPos in the Go code
+    pub fn get_column_number(&self) -> usize {
+        self.token_pos - self.line_start + 1 // Convert to 1-based column
+    }
+
     /// Set the language version for scanning
     /// Corresponds to SetScriptTarget in Go
     pub fn set_language_version(&mut self, version: u8) {

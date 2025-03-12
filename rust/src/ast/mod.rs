@@ -59,6 +59,18 @@ impl NodeBase {
             loc: TextRange::undefined(),
         }
     }
+
+    pub fn with_pos(kind: Kind, pos: usize, end: usize) -> Self {
+        Self {
+            kind,
+            flags: NodeFlags::None,
+            loc: TextRange::new(pos, end),
+        }
+    }
+
+    pub fn set_pos(&mut self, pos: usize, end: usize) {
+        self.loc = TextRange::new(pos, end);
+    }
 }
 
 // Implement the Node trait for NodeBase

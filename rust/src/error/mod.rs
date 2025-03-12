@@ -67,18 +67,82 @@ impl Diagnostic {
         }
     }
 
-    // Simpler constructor for type checking that doesn't require line/column info
+    // Constructor for type checking that computes line/column from absolute position
     pub fn simple(code: DiagnosticCode, message: String, pos: usize, end: usize) -> Self {
+        // Calculate line and column based on the position
+        // This is a simplified implementation - in production, use a proper line map
+        let (line, column) = Self::compute_line_column("", pos);
+
         Self {
             code,
             message,
-            file: "".to_owned(),
+            file: "".to_owned(), // File name needs to be set by the caller
             pos,
             len: end - pos,
-            line: 0,
-            column: 0,
+            line,
+            column,
             severity: DiagnosticSeverity::Error,
         }
+    }
+
+    // Add file information to a diagnostic
+    pub fn with_file(mut self, file_name: &str) -> Self {
+        self.file = file_name.to_owned();
+        self
+    }
+
+    // Update line/column information using source text
+    pub fn with_source_text(mut self, source_text: &str) -> Self {
+        let (line, column) = Self::compute_line_column(source_text, self.pos);
+        self.line = line;
+        self.column = column;
+        self
+    }
+
+    // Helper method to compute line and column from position and source text
+    // In a real implementation, this would use the source file's line map
+    pub fn compute_line_column(source: &str, pos: usize) -> (usize, usize) {
+        // Default values if we can't compute
+        if source.is_empty() {
+            return (1, pos + 1); // 1-based line and column
+        }
+
+        // Safety check - if pos is out of bounds, return the last position
+        if pos >= source.len() {
+            // Calculate for the end of the file
+            let mut line = 1;
+            let mut line_start = 0;
+            let mut last_pos = 0;
+
+            for (i, c) in source.char_indices() {
+                last_pos = i;
+                if c == '\n' {
+                    line += 1;
+                    line_start = i + 1;
+                }
+            }
+
+            // Position at the end of the last line
+            let column = last_pos - line_start + 2; // +2 to account for the last character
+            return (line, column);
+        }
+
+        let mut line = 1;
+        let mut line_start = 0;
+
+        for (i, c) in source.char_indices() {
+            if i >= pos {
+                break;
+            }
+
+            if c == '\n' {
+                line += 1;
+                line_start = i + 1;
+            }
+        }
+
+        let column = pos - line_start + 1; // 1-based column
+        (line, column)
     }
 
     pub fn with_severity(mut self, severity: DiagnosticSeverity) -> Self {

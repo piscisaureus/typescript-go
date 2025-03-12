@@ -51,6 +51,31 @@ pub struct Parser {
 }
 
 impl Parser {
+    /// Helper method to create a diagnostic with proper location information
+    fn error(&self, code: DiagnosticCode, message: &str) -> Diagnostic {
+        let token_pos = self.scanner.token_pos();
+        let pos = self.scanner.pos();
+        Diagnostic::new(
+            code,
+            message,
+            &self.file_name,
+            token_pos,                        // Start position of the token
+            pos - token_pos,                  // Length of the token
+            self.scanner.get_line_number(),   // Line number (1-based)
+            self.scanner.get_column_number(), // Column number (1-based)
+        )
+    }
+
+    /// Helper method to create a NodeBase with the current token's position information
+    fn create_node_base(&self, kind: Kind) -> ast::NodeBase {
+        ast::NodeBase::with_pos(kind, self.scanner.token_pos(), self.scanner.pos())
+    }
+
+    /// Helper method to track a node's range from start_pos to current position
+    fn finish_node(&self, start_pos: usize) -> (usize, usize) {
+        (start_pos, self.scanner.pos())
+    }
+
     /// Creates a new parser
     /// Corresponds to InitializeState in Go (but more closely models the Go constructor pattern)
     pub fn new(file_name: &str, source_text: &str) -> Self {
@@ -236,15 +261,7 @@ impl Parser {
     fn parse_variable_declaration(&mut self) -> Result<Rc<ast::VariableDeclaration>> {
         // Parse the variable name
         if self.token != Kind::Identifier {
-            return Err(Diagnostic::new(
-                DiagnosticCode::SyntaxError,
-                "Expected variable name",
-                &self.file_name,
-                0, // TODO: Get actual position
-                0, // TODO: Get actual length
-                0, // TODO: Get actual line
-                0, // TODO: Get actual column
-            ));
+            return Err(self.error(DiagnosticCode::SyntaxError, "Expected variable name"));
         }
 
         let name_text = self.scanner.token_text().to_owned();
@@ -276,15 +293,7 @@ impl Parser {
                     self.next_token(); // Consume '['
 
                     if self.token != Kind::CloseBracketToken {
-                        return Err(Diagnostic::new(
-                            DiagnosticCode::SyntaxError,
-                            "Expected ']'",
-                            &self.file_name,
-                            0, // TODO: Get actual position
-                            0, // TODO: Get actual length
-                            0, // TODO: Get actual line
-                            0, // TODO: Get actual column
-                        ));
+                        return Err(self.error(DiagnosticCode::SyntaxError, "Expected ']'"));
                     }
 
                     self.next_token(); // Consume ']'
@@ -885,25 +894,36 @@ impl Parser {
     fn parse_primary_expression(&mut self) -> Result<Rc<dyn ast::Node>> {
         let mut expression = match self.token {
             Kind::Identifier => {
+                // Save the token position
+                let token_pos = self.scanner.token_pos();
                 let name_text = self.scanner.token_text().to_owned();
 
                 // Special handling for boolean literals (true/false)
                 if name_text == "true" || name_text == "false" {
                     let value = name_text == "true";
-                    let boolean_literal = Rc::new(ast::BooleanLiteral {
-                        base: ast::NodeBase::new(if value {
-                            Kind::TrueKeyword
-                        } else {
-                            Kind::FalseKeyword
-                        }),
-                        value,
-                    });
+                    let kind = if value {
+                        Kind::TrueKeyword
+                    } else {
+                        Kind::FalseKeyword
+                    };
+
+                    // Create the boolean literal with position information
+                    let mut base = ast::NodeBase::new(kind);
+                    let pos_end = self.scanner.pos();
+                    base.set_pos(token_pos, pos_end);
+
+                    let boolean_literal = Rc::new(ast::BooleanLiteral { base, value });
                     self.next_token();
                     return Ok(boolean_literal as Rc<dyn ast::Node>);
                 }
 
+                // Create identifier with position information
+                let mut base = ast::NodeBase::new(Kind::Identifier);
+                let pos_end = self.scanner.pos();
+                base.set_pos(token_pos, pos_end);
+
                 let identifier = Rc::new(ast::Identifier {
-                    base: ast::NodeBase::new(Kind::Identifier),
+                    base,
                     text: name_text,
                 });
                 self.next_token();
@@ -914,31 +934,45 @@ impl Parser {
                 self.parse_function_expression()?
             }
             Kind::StringLiteral => {
+                // Save the token position
+                let token_pos = self.scanner.token_pos();
                 let text = self.scanner.token_text().to_owned();
-                let string_literal = Rc::new(ast::StringLiteral {
-                    base: ast::NodeBase::new(Kind::StringLiteral),
-                    text,
-                });
+
+                // Create string literal with position information
+                let mut base = ast::NodeBase::new(Kind::StringLiteral);
+                let pos_end = self.scanner.pos();
+                base.set_pos(token_pos, pos_end);
+
+                let string_literal = Rc::new(ast::StringLiteral { base, text });
                 self.next_token();
                 string_literal as Rc<dyn ast::Node>
             }
             Kind::NumericLiteral => {
+                // Save the token position
+                let token_pos = self.scanner.token_pos();
                 let text = self.scanner.token_text().to_owned();
                 let value = text.parse::<f64>().unwrap_or(0.0);
-                let number_literal = Rc::new(ast::NumericLiteral {
-                    base: ast::NodeBase::new(Kind::NumericLiteral),
-                    text,
-                    value,
-                });
+
+                // Create numeric literal with position information
+                let mut base = ast::NodeBase::new(Kind::NumericLiteral);
+                let pos_end = self.scanner.pos();
+                base.set_pos(token_pos, pos_end);
+
+                let number_literal = Rc::new(ast::NumericLiteral { base, text, value });
                 self.next_token();
                 number_literal as Rc<dyn ast::Node>
             }
             Kind::TrueKeyword | Kind::FalseKeyword => {
+                // Save the token position
+                let token_pos = self.scanner.token_pos();
                 let value = self.token == Kind::TrueKeyword;
-                let boolean_literal = Rc::new(ast::BooleanLiteral {
-                    base: ast::NodeBase::new(self.token),
-                    value,
-                });
+
+                // Create boolean literal with position information
+                let mut base = ast::NodeBase::new(self.token);
+                let pos_end = self.scanner.pos();
+                base.set_pos(token_pos, pos_end);
+
+                let boolean_literal = Rc::new(ast::BooleanLiteral { base, value });
                 self.next_token();
                 boolean_literal as Rc<dyn ast::Node>
             }
@@ -1017,17 +1051,12 @@ impl Parser {
         &mut self,
         expression: Rc<dyn ast::Node>,
     ) -> Result<Rc<dyn ast::Node>> {
+        // Save the start position (the position of the function expression)
+        let start_pos = expression.pos();
+
         // Expect '('
         if self.token != Kind::OpenParenToken {
-            return Err(Diagnostic::new(
-                DiagnosticCode::SyntaxError,
-                "Expected '('",
-                &self.file_name,
-                0, // TODO: Get actual position
-                0, // TODO: Get actual length
-                0, // TODO: Get actual line
-                0, // TODO: Get actual column
-            ));
+            return Err(self.error(DiagnosticCode::SyntaxError, "Expected '('"));
         }
         self.next_token();
 
@@ -1047,21 +1076,19 @@ impl Parser {
 
         // Expect ')'
         if self.token != Kind::CloseParenToken {
-            return Err(Diagnostic::new(
-                DiagnosticCode::SyntaxError,
-                "Expected ')'",
-                &self.file_name,
-                0, // TODO: Get actual position
-                0, // TODO: Get actual length
-                0, // TODO: Get actual line
-                0, // TODO: Get actual column
-            ));
+            return Err(self.error(DiagnosticCode::SyntaxError, "Expected ')'"));
         }
         self.next_token();
 
-        // Create call expression
+        // The end position is the current scanner position (after the closing paren)
+        let end_pos = self.scanner.pos();
+
+        // Create call expression with proper source range
+        let mut base = ast::NodeBase::new(Kind::CallExpression);
+        base.set_pos(start_pos, end_pos);
+
         let call_expr = Rc::new(ast::CallExpression {
-            base: ast::NodeBase::new(Kind::CallExpression),
+            base,
             expression,
             arguments,
         });
@@ -1114,9 +1141,9 @@ impl Parser {
         }
         self.next_token();
 
-        // Create array literal expression
+        // Create array literal expression with position tracking
         let array_expr = Rc::new(ast::ArrayLiteralExpression {
-            base: ast::NodeBase::new(Kind::ArrayLiteralExpression),
+            base: self.create_node_base(Kind::ArrayLiteralExpression),
             elements,
         });
 
@@ -1169,9 +1196,9 @@ impl Parser {
         }
         self.next_token();
 
-        // Create object literal expression
+        // Create object literal expression with position tracking
         let object_expr = Rc::new(ast::ObjectLiteralExpression {
-            base: ast::NodeBase::new(Kind::ObjectLiteralExpression),
+            base: self.create_node_base(Kind::ObjectLiteralExpression),
             properties,
         });
 
@@ -1194,9 +1221,9 @@ impl Parser {
             let expression = self.parse_expression()?;
             println!("After spread expression, token: {:?}", self.token); // DEBUG
 
-            // Create spread assignment
+            // Create spread assignment with position tracking
             let spread_assignment = Rc::new(ast::SpreadAssignment {
-                base: ast::NodeBase::new(Kind::SpreadAssignment),
+                base: self.create_node_base(Kind::SpreadAssignment),
                 expression,
             });
 
@@ -1209,7 +1236,7 @@ impl Parser {
             let name_text = self.scanner.token_text().to_owned();
             println!("Property name: {}", name_text); // DEBUG
             let identifier = Rc::new(ast::Identifier {
-                base: ast::NodeBase::new(Kind::Identifier),
+                base: self.create_node_base(Kind::Identifier),
                 text: name_text,
             });
             self.next_token();
@@ -1255,9 +1282,9 @@ impl Parser {
         let initializer = self.parse_expression()?;
         println!("After expression parse, token: {:?}", self.token); // DEBUG
 
-        // Create property assignment
+        // Create property assignment with position tracking
         let property_assignment = Rc::new(ast::PropertyAssignment {
-            base: ast::NodeBase::new(Kind::PropertyAssignment),
+            base: self.create_node_base(Kind::PropertyAssignment),
             name,
             initializer,
         });
